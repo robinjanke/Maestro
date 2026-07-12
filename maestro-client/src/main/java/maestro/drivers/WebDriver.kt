@@ -352,14 +352,21 @@ class WebDriver(
 
         val pixelsScrolled = scrollToPoint(point)
 
+        val adjustedPoint = Point(point.x, point.y - pixelsScrolled.toInt())
+        val isFlutter = executeJS("window.maestro.isFlutterApp()") as? Boolean ?: false
+        if (isFlutter) {
+            executeJS("window.maestro.tapAtViewportPoint(${adjustedPoint.x}, ${adjustedPoint.y})")
+            return
+        }
+
         val mouse = PointerInput(PointerInput.Kind.MOUSE, "default mouse")
         val actions = org.openqa.selenium.interactions.Sequence(mouse, 1)
             .addAction(
                 mouse.createPointerMove(
                     Duration.ofMillis(400),
                     PointerInput.Origin.viewport(),
-                    point.x,
-                    point.y - pixelsScrolled.toInt()
+                    adjustedPoint.x,
+                    adjustedPoint.y
                 )
             )
 

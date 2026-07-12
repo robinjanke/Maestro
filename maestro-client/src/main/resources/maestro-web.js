@@ -259,6 +259,73 @@
         return isFlutter;
     }
 
+    maestro.tapAtViewportPoint = (viewportX, viewportY) => {
+        const vpx = maestro.viewportX || 0;
+        const vpy = maestro.viewportY || 0;
+        const vpw = maestro.viewportWidth || window.innerWidth;
+        const vph = maestro.viewportHeight || window.innerHeight;
+        const scaleX = vpw / window.innerWidth;
+        const scaleY = vph / window.innerHeight;
+        const clientX = (viewportX - vpx) / scaleX;
+        const clientY = (viewportY - vpy) / scaleY;
+
+        if (maestro.isFlutterApp()) {
+            return maestro.tapFlutterAt(clientX, clientY);
+        }
+
+        const element = document.elementFromPoint(clientX, clientY);
+        if (element) {
+            element.click();
+            return true;
+        }
+        return false;
+    };
+
+    maestro.tapFlutterAt = (clientX, clientY) => {
+        const semantics = document.elementFromPoint(clientX, clientY);
+        const flutterRoot = document.querySelector('flutter-view') ||
+            document.querySelector('flt-glass-pane');
+        const target = semantics || flutterRoot;
+        if (!target) {
+            return false;
+        }
+
+        const pointerInit = {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+            button: 0,
+            pointerId: 1,
+            pointerType: 'mouse',
+            isPrimary: true,
+        };
+
+        for (const type of ['pointerdown', 'pointerup', 'click']) {
+            const event = type.startsWith('pointer')
+                ? new PointerEvent(type, {
+                    ...pointerInit,
+                    buttons: type === 'pointerdown' ? 1 : 0,
+                })
+                : new MouseEvent(type, {
+                    bubbles: true,
+                    cancelable: true,
+                    clientX,
+                    clientY,
+                    button: 0,
+                });
+            target.dispatchEvent(event);
+            if (flutterRoot && flutterRoot !== target) {
+                flutterRoot.dispatchEvent(event);
+            }
+        }
+
+        if (semantics && typeof semantics.click === 'function') {
+            semantics.click();
+        }
+        return true;
+    };
+
     maestro.smoothScrollFlutterByDelta = (totalDeltaX, totalDeltaY, durationMs = 500) => {
         // Core smooth animated scrolling for Flutter web using explicit delta values
         return new Promise((resolve) => {
