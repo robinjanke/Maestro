@@ -120,6 +120,7 @@ class StartDeviceCommand : Callable<Int> {
                     locale = deviceLocale?.let { WebLocale.fromString(it) } ?: default.locale,
                 )
             }
+            Platform.DESKTOP -> DeviceSpec.Desktop.DEFAULT
         }
 
         // Get/Create the device

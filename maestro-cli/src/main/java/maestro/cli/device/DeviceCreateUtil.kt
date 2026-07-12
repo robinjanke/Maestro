@@ -23,6 +23,13 @@ object DeviceCreateUtil {
             deviceType = Device.DeviceType.BROWSER,
             deviceSpec = deviceSpec,
         )
+        is DeviceSpec.Desktop -> Device.AvailableForLaunch(
+            platform = Platform.DESKTOP,
+            description = "Flutter Desktop (${deviceSpec.os})",
+            modelId = "desktop-${deviceSpec.os.lowercase().replace(" ", "-")}",
+            deviceType = Device.DeviceType.DESKTOP,
+            deviceSpec = deviceSpec,
+        )
     }
 
     fun getOrCreateIosDevice(

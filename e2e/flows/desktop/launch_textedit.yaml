@@ -1,0 +1,7 @@
+appId: com.apple.TextEdit
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "TextEdit"
+    timeout: 30000
+- assertVisible: "TextEdit"

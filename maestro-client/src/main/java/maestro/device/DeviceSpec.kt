@@ -35,6 +35,7 @@ enum class CPU_ARCHITECTURE(val value: String) {
   JsonSubTypes.Type(DeviceSpec.Android::class, name = "ANDROID"),
   JsonSubTypes.Type(DeviceSpec.Ios::class, name = "IOS"),
   JsonSubTypes.Type(DeviceSpec.Web::class, name = "WEB"),
+  JsonSubTypes.Type(DeviceSpec.Desktop::class, name = "DESKTOP"),
 )
 sealed class DeviceSpec {
     abstract val platform: Platform
@@ -101,6 +102,25 @@ sealed class DeviceSpec {
 
         companion object {
             val DEFAULT: Web = Web(model = "chromium", os = "default")
+        }
+    }
+
+    data class Desktop(
+        override val model: String,
+        override val os: String,
+        override val locale: WebLocale = WebLocale.EN_US,
+    ) : DeviceSpec() {
+        init {
+            require(model.isNotBlank()) { "DeviceSpec.Desktop: model cannot be blank" }
+            require(os.isNotBlank()) { "DeviceSpec.Desktop: os cannot be blank" }
+        }
+
+        override val platform = Platform.DESKTOP
+        override val osVersion: Int get() = 0
+        override val deviceName: String get() = "Maestro_DESKTOP_${model}_${os}"
+
+        companion object {
+            val DEFAULT: Desktop = Desktop(model = "host", os = System.getProperty("os.name"))
         }
     }
 }

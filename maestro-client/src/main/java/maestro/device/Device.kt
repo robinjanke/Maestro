@@ -11,7 +11,8 @@ sealed class Device(
         REAL,
         SIMULATOR,
         EMULATOR,
-        BROWSER
+        BROWSER,
+        DESKTOP,
     }
 
     data class Connected(

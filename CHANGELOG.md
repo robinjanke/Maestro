@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Flutter Desktop (Robin Janke fork)
+
+- Add `Platform.DESKTOP` and `--platform desktop` CLI support
+- Add `maestro-desktop` module with macOS AXUIElement driver for Flutter desktop apps
+- Add Windows/Linux driver scaffolds (UIA / AT-SPI planned)
+- Add docs: `docs/flutter-desktop.md` and sample flow `e2e/flows/desktop/launch_textedit.yaml`
+
 ## 2.6.1
 
 - iOS: fix cross-process sheets and improve hierarchy walk performance

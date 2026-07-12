@@ -168,6 +168,7 @@ dependencies {
 
     implementation(project(":maestro-orchestra"))
     implementation(project(":maestro-client"))
+    implementation(project(":maestro-desktop"))
     implementation(project(":maestro-ios"))
     implementation(project(":maestro-ios-driver"))
     implementation(libs.apk.parser)

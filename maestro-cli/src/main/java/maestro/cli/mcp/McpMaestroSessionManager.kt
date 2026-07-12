@@ -74,6 +74,7 @@ internal class McpMaestroSessionManager : AutoCloseable {
             Platform.ANDROID -> createAndroidSession(device, streamDeviceType)
             Platform.IOS -> createIosSession(device, streamDeviceType)
             Platform.WEB -> createWebSession()
+            Platform.DESKTOP -> throw CliError("Desktop sessions are not supported by the MCP server yet")
         }
     }
 

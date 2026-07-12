@@ -136,6 +136,17 @@ object DeviceService {
                     deviceSpec = device.deviceSpec,
                 )
             }
+
+            Platform.DESKTOP -> {
+                PrintUtils.message("Launching Flutter Desktop host...")
+                return Device.Connected(
+                    instanceId = device.modelId,
+                    description = device.description,
+                    platform = device.platform,
+                    deviceType = device.deviceType,
+                    deviceSpec = device.deviceSpec,
+                )
+            }
         }
     }
 
@@ -159,11 +170,33 @@ object DeviceService {
      fun listDevices(includeWeb: Boolean, host: String? = null, port: Int? = null): List<Device> {
         return listAndroidDevices(host, port) +
                 listIOSDevices() +
+                listDesktopDevices() +
                 if (includeWeb) {
                     listWebDevices()
                 } else {
                     listOf()
                 }
+    }
+
+    fun listDesktopDevices(): List<Device> {
+        val osName = System.getProperty("os.name")
+        val instanceId = "desktop-${osName.lowercase().replace(" ", "-")}"
+        return listOf(
+            Device.Connected(
+                platform = Platform.DESKTOP,
+                description = "Flutter Desktop ($osName)",
+                instanceId = instanceId,
+                deviceType = Device.DeviceType.DESKTOP,
+                deviceSpec = DeviceSpec.Desktop.DEFAULT,
+            ),
+            Device.AvailableForLaunch(
+                modelId = instanceId,
+                description = "Flutter Desktop ($osName)",
+                platform = Platform.DESKTOP,
+                deviceType = Device.DeviceType.DESKTOP,
+                deviceSpec = DeviceSpec.Desktop.DEFAULT,
+            ),
+        )
     }
 
     fun listWebDevices(): List<Device> {

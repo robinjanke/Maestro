@@ -36,6 +36,7 @@ import maestro.cli.report.TestDebugReporter
 import maestro.cli.util.ScreenReporter
 import maestro.drivers.AndroidDriver
 import maestro.drivers.IOSDriver
+import maestro.drivers.desktop.DesktopDriverFactory
 import maestro.orchestra.WorkspaceConfig.PlatformConfiguration
 import maestro.orchestra.workspace.WorkspaceExecutionPlanner
 import maestro.utils.TempFileHandler
@@ -152,6 +153,13 @@ object MaestroSessionManager {
             )
         }
 
+        if (deviceId?.startsWith("desktop") == true || platform == Platform.DESKTOP) {
+            return SelectedDevice(
+                platform = Platform.DESKTOP,
+                deviceType = Device.DeviceType.DESKTOP,
+            )
+        }
+
         if (host == null) {
             val device = PickDeviceInteractor.pickDevice(deviceId, driverHostPort, platform, deviceIndex)
 
@@ -224,6 +232,8 @@ object MaestroSessionManager {
                     )
 
                     Platform.WEB -> pickWebDevice(isStudio, isHeadless, screenSize)
+
+                    Platform.DESKTOP -> pickDesktopDevice(!connectToExistingSession)
                 },
                 device = selectedDevice.device,
             )
@@ -253,6 +263,11 @@ object MaestroSessionManager {
 
             selectedDevice.platform == Platform.WEB -> MaestroSession(
                 maestro = pickWebDevice(isStudio, isHeadless, screenSize),
+                device = null
+            )
+
+            selectedDevice.platform == Platform.DESKTOP -> MaestroSession(
+                maestro = pickDesktopDevice(!connectToExistingSession),
                 device = null
             )
 
@@ -450,6 +465,14 @@ object MaestroSessionManager {
 
     private fun pickWebDevice(isStudio: Boolean, isHeadless: Boolean, screenSize: String?): Maestro {
         return Maestro.web(isStudio, isHeadless, screenSize)
+    }
+
+    private fun pickDesktopDevice(openDriver: Boolean): Maestro {
+        val driver = DesktopDriverFactory.create()
+        if (openDriver) {
+            driver.open()
+        }
+        return Maestro(driver)
     }
 
     private data class SelectedDevice(
