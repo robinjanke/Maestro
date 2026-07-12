@@ -8,7 +8,7 @@ import com.sun.jna.ptr.PointerByReference
 
 /**
  * JNA bindings for macOS Accessibility (ApplicationServices.framework)
- * and CoreFoundation string helpers.
+ * and CoreFoundation helpers with safe CF type handling.
  */
 internal interface MacAxLibrary : Library {
     fun AXUIElementCreateApplication(pid: Int): Pointer?
@@ -77,6 +77,16 @@ private interface CoreFoundationBridge : Library {
 
     fun CFArrayGetValueAtIndex(theArray: Pointer, index: Int): Pointer?
 
+    fun CFGetTypeID(cf: Pointer): Long
+
+    fun CFStringGetTypeID(): Long
+
+    fun CFBooleanGetTypeID(): Long
+
+    fun CFBooleanGetValue(boolean: Pointer): Byte
+
+    fun CFArrayGetTypeID(): Long
+
     companion object {
         val INSTANCE: CoreFoundationBridge = Native.load("CoreFoundation", CoreFoundationBridge::class.java)
     }
@@ -85,13 +95,17 @@ private interface CoreFoundationBridge : Library {
 internal object MacAxValue {
     fun readString(pointer: Pointer?): String? {
         if (pointer == null) return null
-        val length = CoreFoundationBridge.INSTANCE.CFStringGetLength(pointer)
-        val maxSize = CoreFoundationBridge.INSTANCE.CFStringGetMaximumSizeForEncoding(
+        val cf = CoreFoundationBridge.INSTANCE
+        if (cf.CFGetTypeID(pointer) != cf.CFStringGetTypeID()) {
+            return null
+        }
+        val length = cf.CFStringGetLength(pointer)
+        val maxSize = cf.CFStringGetMaximumSizeForEncoding(
             length,
             MacAxLibrary.K_CF_STRING_ENCODING_UTF8,
         ) + 1
         val buffer = Memory(maxSize.toLong())
-        val ok = CoreFoundationBridge.INSTANCE.CFStringGetCString(
+        val ok = cf.CFStringGetCString(
             pointer,
             buffer,
             maxSize,
@@ -100,11 +114,24 @@ internal object MacAxValue {
         return if (ok.toInt() != 0) buffer.getString(0) else null
     }
 
+    fun readBool(pointer: Pointer?): Boolean? {
+        if (pointer == null) return null
+        val cf = CoreFoundationBridge.INSTANCE
+        if (cf.CFGetTypeID(pointer) != cf.CFBooleanGetTypeID()) {
+            return null
+        }
+        return cf.CFBooleanGetValue(pointer).toInt() != 0
+    }
+
     fun readChildren(pointer: Pointer?): List<Pointer> {
         if (pointer == null) return emptyList()
-        val count = CoreFoundationBridge.INSTANCE.CFArrayGetCount(pointer)
+        val cf = CoreFoundationBridge.INSTANCE
+        if (cf.CFGetTypeID(pointer) != cf.CFArrayGetTypeID()) {
+            return emptyList()
+        }
+        val count = cf.CFArrayGetCount(pointer)
         return (0 until count).mapNotNull { index ->
-            CoreFoundationBridge.INSTANCE.CFArrayGetValueAtIndex(pointer, index)
+            cf.CFArrayGetValueAtIndex(pointer, index)
         }
     }
 }

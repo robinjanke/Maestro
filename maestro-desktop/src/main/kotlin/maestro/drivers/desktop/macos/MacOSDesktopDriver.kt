@@ -1,7 +1,6 @@
 package maestro.drivers.desktop.macos
 
 import com.sun.jna.Pointer
-import com.sun.jna.Structure
 import maestro.Capability
 import maestro.DeviceInfo
 import maestro.Driver
@@ -314,9 +313,9 @@ class MacOSDesktopDriver : Driver {
         val description = readAttribute(element, MacAxLibrary.AXDescriptionAttribute)
         val identifier = readAttribute(element, MacAxLibrary.AXIdentifierAttribute)
         val value = readAttribute(element, MacAxLibrary.AXValueAttribute)
-        val enabled = readAttribute(element, MacAxLibrary.AXEnabledAttribute)?.toBooleanStrictOrNull()
-        val focused = readAttribute(element, MacAxLibrary.AXFocusedAttribute)?.toBooleanStrictOrNull()
-        val selected = readAttribute(element, MacAxLibrary.AXSelectedAttribute)?.toBooleanStrictOrNull()
+        val enabled = readBoolAttribute(element, MacAxLibrary.AXEnabledAttribute)
+        val focused = readBoolAttribute(element, MacAxLibrary.AXFocusedAttribute)
+        val selected = readBoolAttribute(element, MacAxLibrary.AXSelectedAttribute)
 
         val text = listOfNotNull(title, description, value)
             .firstOrNull { it.isNotBlank() }
@@ -359,20 +358,24 @@ class MacOSDesktopDriver : Driver {
         return "[$left,$top][$right,$bottom]"
     }
 
-    private fun readAxPoint(pointer: Pointer): CGPoint? {
-        val point = CGPoint()
+    private fun readAxPoint(pointer: Pointer): MacAxCGPoint? {
+        val point = MacAxCGPoint()
         val ok = AxValueReader.INSTANCE.AXValueGetValue(pointer, AX_VALUE_TYPE_CGPOINT, point.pointer)
         return if (ok) point else null
     }
 
-    private fun readAxSize(pointer: Pointer): CGSize? {
-        val size = CGSize()
+    private fun readAxSize(pointer: Pointer): MacAxCGSize? {
+        val size = MacAxCGSize()
         val ok = AxValueReader.INSTANCE.AXValueGetValue(pointer, AX_VALUE_TYPE_CGSIZE, size.pointer)
         return if (ok) size else null
     }
 
     private fun readAttribute(element: Pointer, attribute: Pointer): String? {
         return MacAxValue.readString(MacAxElement.copyAttribute(element, attribute))
+    }
+
+    private fun readBoolAttribute(element: Pointer, attribute: Pointer): Boolean? {
+        return MacAxValue.readBool(MacAxElement.copyAttribute(element, attribute))
     }
 
     private fun findFocusedElement(): Pointer? {
@@ -436,18 +439,6 @@ class MacOSDesktopDriver : Driver {
     }
 
     private fun createCFString(value: String): Pointer = MacAxLibrary.cfString(value)
-
-    private class CGPoint : Structure() {
-        @JvmField var x: Double = 0.0
-        @JvmField var y: Double = 0.0
-        override fun getFieldOrder(): List<String> = listOf("x", "y")
-    }
-
-    private class CGSize : Structure() {
-        @JvmField var width: Double = 0.0
-        @JvmField var height: Double = 0.0
-        override fun getFieldOrder(): List<String> = listOf("width", "height")
-    }
 
     private interface AxValueReader : com.sun.jna.Library {
         fun AXValueGetValue(value: Pointer, type: Int, valuePtr: Pointer): Boolean
