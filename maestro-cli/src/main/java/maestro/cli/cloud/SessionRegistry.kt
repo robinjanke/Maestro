@@ -49,6 +49,8 @@ class SessionRegistry(
             devices = request.devices,
             workerGroups = workerGroups,
             artifact = request.artifact,
+            clientProjectPath = request.clientProjectPath,
+            env = request.env,
         )
         if (pipelineId == null && gitlab != null) {
             val failed = record.copy(

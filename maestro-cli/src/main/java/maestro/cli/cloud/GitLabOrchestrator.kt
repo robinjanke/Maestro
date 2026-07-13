@@ -28,6 +28,8 @@ class GitLabOrchestrator(
         devices: List<String>,
         workerGroups: List<String>,
         artifact: ArtifactRef,
+        clientProjectPath: String?,
+        env: Map<String, String>,
     ): Long? {
         val variables = linkedMapOf(
             "MAESTRO_SESSION_ID" to sessionId,
@@ -39,6 +41,14 @@ class GitLabOrchestrator(
             "MAESTRO_PARENT_PIPELINE_ID" to artifact.pipelineId,
             "MAESTRO_PARENT_JOB_NAME" to artifact.jobName,
         )
+        if (!clientProjectPath.isNullOrBlank()) {
+            variables["MAESTRO_PARENT_PROJECT_PATH"] = clientProjectPath
+        }
+        env.forEach { (key, value) ->
+            if (key.startsWith("E2E_") && value.isNotBlank()) {
+                variables[key] = value
+            }
+        }
 
         triggerViaToken(variables)?.let { return it }
         triggerViaApiToken(variables)?.let { return it }

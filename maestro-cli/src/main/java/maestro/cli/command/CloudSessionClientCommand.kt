@@ -40,7 +40,7 @@ class CloudSessionClientCommand : Callable<Int> {
     @CommandLine.Option(names = ["--pipeline-id"], required = true)
     private lateinit var pipelineId: String
 
-    @CommandLine.Option(names = ["--job-name"], defaultValue = "collect-component-flows")
+    @CommandLine.Option(names = ["--job-name"], defaultValue = "e2e-test")
     private lateinit var jobName: String
 
     @CommandLine.Option(names = ["--timeout"], defaultValue = "3600")
