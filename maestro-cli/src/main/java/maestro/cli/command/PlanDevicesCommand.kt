@@ -110,7 +110,7 @@ class PlanDevicesCommand : Callable<Int> {
         builder.appendLine("prepare-e2e-flows:")
         builder.appendLine("  stage: prepare")
         builder.appendLine("  variables:")
-        builder.appendLine("    GIT_CLONE_PATH: \"\"")
+        builder.appendLine("    GIT_CLONE_PATH: \$CI_BUILDS_DIR/\$CI_PROJECT_PATH")
         builder.appendLine("  image: alpine:3.21")
         builder.appendLine("  tags:")
         builder.appendLine("    - doppelt-digital-docker")
