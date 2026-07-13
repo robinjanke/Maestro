@@ -110,6 +110,8 @@ class PlanDevicesCommand : Callable<Int> {
         builder.appendLine("prepare-e2e-flows:")
         builder.appendLine("  stage: prepare")
         builder.appendLine("  image: alpine:3.21")
+        builder.appendLine("  tags:")
+        builder.appendLine("    - doppelt-digital-docker")
         builder.appendLine("  before_script:")
         builder.appendLine("    - apk add --no-cache git bash jq")
         builder.appendLine("    - |")
