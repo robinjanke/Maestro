@@ -27,7 +27,7 @@ data class SessionRecord(
 )
 
 class SessionStore(private val dbPath: Path) {
-    private val mapper: ObjectMapper = jacksonObjectMapper()
+    private val mapper: ObjectMapper = cloudObjectMapper()
 
     init {
         Files.createDirectories(dbPath.parent)

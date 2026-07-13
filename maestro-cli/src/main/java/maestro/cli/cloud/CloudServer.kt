@@ -28,7 +28,7 @@ class CloudServer private constructor(
     private val apiKeyValidator: ApiKeyValidator,
     private val server: ApplicationEngine,
 ) : AutoCloseable {
-    private val mapper: ObjectMapper = jacksonObjectMapper()
+    private val mapper: ObjectMapper = cloudObjectMapper()
 
     override fun close() {
         server.stop(gracePeriodMillis = 500, timeoutMillis = 2000)
@@ -49,7 +49,7 @@ class CloudServer private constructor(
             val store = SessionStore(dbPath)
             val registry = SessionRegistry(store, gitlab)
             val apiKeyValidator = ApiKeyValidator(apiKeys)
-            val mapper = jacksonObjectMapper()
+            val mapper = cloudObjectMapper()
 
             val engine = embeddedServer(Netty, host = host, port = port) {
                 routing {
