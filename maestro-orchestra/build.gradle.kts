@@ -55,4 +55,5 @@ mavenPublishing {
 tasks.named<Test>("test") {
     useJUnitPlatform()
     environment.put("PROJECT_DIR", projectDir.absolutePath)
+    environment.put("MAESTRO_REQUIRE_DEVICE", "false")
 }

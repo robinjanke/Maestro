@@ -11,7 +11,8 @@
     }
 
     const getNodeText = (node) => {
-        switch (node.tagName.toLowerCase()) {
+        const tag = node.tagName.toLowerCase()
+        switch (tag) {
             case 'input':
                 return node.value || node.placeholder || node.ariaLabel || ''
 
@@ -19,12 +20,27 @@
                 return node.value || node.placeholder || node.ariaLabel || ''
 
             case 'select':
-                return Array.from(node.selectedOptions).map((option) => option.text).join(', ')
+                return Array.from(node.selectedOptions).map((option) => option.text).join(',')
+
+            case 'flt-semantics':
+                return node.getAttribute('aria-label')
+                    || node.getAttribute('flt-semantics-identifier')
+                    || ''
 
             default:
                 const childNodes = [...(node.childNodes || [])].filter(node => node.nodeType === Node.TEXT_NODE)
                 return childNodes.map(node => node.textContent.replace('\n', '').replace('\t', '')).join('')
         }
+    }
+
+    const getSemanticsResourceId = (node) => {
+        const tag = node.tagName.toLowerCase()
+        if (tag === 'flt-semantics') {
+            return node.getAttribute('flt-semantics-identifier')
+                || node.getAttribute('aria-label')
+                || node.id
+        }
+        return node.id || node.ariaLabel || node.name || node.title || node.htmlFor || node.attributes['data-testid']?.value
     }
 
     const getIndexInParent = (node) => {
@@ -79,6 +95,29 @@
 
     const isDocumentLoading = () => document.readyState !== 'complete'
 
+    const getTraversableChildren = (node) => {
+        const nodes = [...(node.children || [])]
+        if (node.shadowRoot) {
+            nodes.push(...(node.shadowRoot.children || []))
+        }
+        return nodes
+    }
+
+    const queryCssDeep = (selector, root = document) => {
+        const results = []
+        try {
+            root.querySelectorAll(selector).forEach((el) => results.push(el))
+        } catch (e) {
+            // Invalid selector for this root — skip.
+        }
+        root.querySelectorAll('*').forEach((el) => {
+            if (el.shadowRoot) {
+                queryCssDeep(selector, el.shadowRoot).forEach((match) => results.push(match))
+            }
+        })
+        return results
+    }
+
     const traverse = (node, includeChildren = true, iframeOffsetX = 0, iframeOffsetY = 0) => {
       if (!node || isInvalidTag(node)) return null
 
@@ -112,7 +151,7 @@
       }
 
       const children = includeChildren
-        ? [...node.children || []].map(child => traverse(child, true, iframeOffsetX, iframeOffsetY)).filter(el => !!el)
+        ? getTraversableChildren(node).map(child => traverse(child, true, iframeOffsetX, iframeOffsetY)).filter(el => !!el)
         : []
 
       const attributes = {
@@ -125,9 +164,12 @@
         return null;
       }
 
-      if (!!node.id || !!node.ariaLabel || !!node.name || !!node.title || !!node.htmlFor || !!node.attributes['data-testid']) {
+      if (!!node.id || !!node.ariaLabel || !!node.name || !!node.title || !!node.htmlFor || !!node.attributes['data-testid'] || node.tagName.toLowerCase() === 'flt-semantics') {
         const title = typeof node.title === 'string' ? node.title : null
-        attributes['resource-id'] = node.id || node.ariaLabel || node.name || title || node.htmlFor || node.attributes['data-testid']?.value
+        const resourceId = getSemanticsResourceId(node)
+        if (resourceId) {
+          attributes['resource-id'] = resourceId
+        }
       }
 
       if (node.tagName.toLowerCase() === 'body') {
@@ -162,7 +204,7 @@
     maestro.queryCss = (selector) => {
         // Returns a list of matching elements for the given CSS selector.
         // Does not include children of discovered elements.
-        const elements = document.querySelectorAll(selector);
+        const elements = queryCssDeep(selector);
 
         return Array.from(elements).map(el => {
             return traverse(el, false);
@@ -281,8 +323,46 @@
         return false;
     };
 
+    maestro.tapBySemanticsIdentifier = (identifier) => {
+        if (!identifier) {
+            return false;
+        }
+
+        const hits = queryCssDeep('flt-semantics')
+            .filter((node) => node.getAttribute('flt-semantics-identifier') === identifier)
+            .map((node) => {
+                const rect = node.getBoundingClientRect();
+                return { node, rect, area: rect.width * rect.height };
+            })
+            .filter(({ rect }) => rect.width > 0 && rect.height > 0)
+            .sort((a, b) => a.area - b.area);
+
+        const hit = hits[0];
+        if (!hit) {
+            return false;
+        }
+
+        const clientX = hit.rect.left + hit.rect.width / 2;
+        const clientY = hit.rect.top + hit.rect.height / 2;
+        return maestro.tapFlutterAt(clientX, clientY);
+    };
+
     maestro.tapFlutterAt = (clientX, clientY) => {
-        const semantics = document.elementFromPoint(clientX, clientY);
+        const semanticHits = queryCssDeep('flt-semantics')
+            .map((node) => {
+                const rect = node.getBoundingClientRect()
+                return { node, rect, area: rect.width * rect.height }
+            })
+            .filter(({ rect }) =>
+                rect.width > 0 &&
+                rect.height > 0 &&
+                clientX >= rect.left && clientX <= rect.right &&
+                clientY >= rect.top && clientY <= rect.bottom
+            )
+            .sort((a, b) => a.area - b.area)
+
+        const semantics = semanticHits[0]?.node ||
+            document.elementFromPoint(clientX, clientY)
         const flutterRoot = document.querySelector('flutter-view') ||
             document.querySelector('flt-glass-pane');
         const target = semantics || flutterRoot;

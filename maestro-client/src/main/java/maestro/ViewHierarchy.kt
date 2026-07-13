@@ -44,9 +44,9 @@ value class ViewHierarchy(val root: TreeNode) {
 
         val center = node.toUiElement().bounds.center()
 
-        val elementAtPosition = getElementAt(root, center.x, center.y)
+        val elementAtPosition = getElementAt(root, center.x, center.y) ?: return false
 
-        return node == elementAtPosition
+        return node == elementAtPosition || node.isAncestorOf(elementAtPosition)
     }
 
     fun refreshElement(node: TreeNode): TreeNode? {

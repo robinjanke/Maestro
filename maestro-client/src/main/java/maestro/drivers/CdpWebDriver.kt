@@ -291,12 +291,17 @@ class CdpWebDriver(
             is Map<*, *> -> "[${b["left"]},${b["top"]}][${b["right"]},${b["bottom"]}]"
             else -> "[0,0][0,0]"
         }
+        val text = when (val rawText = attrs["text"]) {
+            is String -> rawText
+            null -> ""
+            else -> rawText.toString()
+        }
         val attributes = mutableMapOf(
-            "text" to attrs["text"] as String,
+            "text" to text,
             "bounds" to bounds,
         )
         if (attrs.containsKey("resource-id") && attrs["resource-id"] != null) {
-            attributes["resource-id"] = attrs["resource-id"] as String
+            attributes["resource-id"] = attrs["resource-id"].toString()
         }
         if (attrs.containsKey("selected") && attrs["selected"] != null) {
             attributes["selected"] = (attrs["selected"] as Boolean).toString()
@@ -388,7 +393,6 @@ class CdpWebDriver(
         val isFlutter = executeJS("window.maestro.isFlutterApp()") as? Boolean ?: false
         if (isFlutter) {
             executeJS("window.maestro.tapAtViewportPoint(${adjustedPoint.x}, ${adjustedPoint.y})")
-            return
         }
 
         val mouse = PointerInput(PointerInput.Kind.MOUSE, "default mouse")
@@ -405,6 +409,17 @@ class CdpWebDriver(
         (driver as RemoteWebDriver).perform(listOf(actions))
 
         Actions(driver).click().build().perform()
+    }
+
+    fun tapSemanticsIdentifier(identifier: String): Boolean {
+        ensureOpen()
+        val isFlutter = executeJS("window.maestro.isFlutterApp()") as? Boolean ?: false
+        if (!isFlutter) {
+            return false
+        }
+        return executeJS(
+            "(() => { try { return !!window.maestro.tapBySemanticsIdentifier('${identifier.replace("\\", "\\\\").replace("'", "\\'")}'); } catch (e) { return false; } })()"
+        ) as? Boolean ?: false
     }
 
     private fun tapOnSyntheticCoordinateSpace(point: Point) {

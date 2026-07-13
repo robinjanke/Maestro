@@ -21,6 +21,7 @@ data class YamlConfig(
     @JsonAlias("appId") private val _appId: String?,
 
     val url: String?, // Raw url from YAML - preserved to distinguish web vs app configs
+    val device: YamlDevice? = null,
     val tags: List<String>? = emptyList(),
     val env: Map<String, String> = emptyMap(),
     val onFlowStart: YamlOnFlowStart?,
@@ -46,6 +47,14 @@ data class YamlConfig(
     }
 
     fun toCommand(flowPath: Path): MaestroCommand {
+        device?.let { yamlDevice ->
+            ext["device"] = linkedMapOf(
+                "name" to yamlDevice.name,
+                "type" to yamlDevice.type,
+                "version" to yamlDevice.version,
+                "category" to yamlDevice.category,
+            )
+        }
         val config = MaestroConfig(
             appId = appId,  // maestro-cli uses url as appId for web flows
             name = name,

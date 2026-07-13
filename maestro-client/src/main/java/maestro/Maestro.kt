@@ -216,9 +216,25 @@ class Maestro(
             refreshElementUntilStable(element, initialHierarchy)
         }
 
-        val center = (refreshedElement ?: element)
-            .bounds
+        val deviceInfo = runInterruptible(Dispatchers.IO) { driver.deviceInfo() }
+        val tapTargetNode = (refreshedElement ?: element).treeNode.resolveCompactTapTarget(
+            screenWidth = deviceInfo.widthGrid,
+            screenHeight = deviceInfo.heightGrid,
+        )
+        val center = (tapTargetNode.toUiElementOrNull()?.bounds ?: (refreshedElement ?: element).bounds)
             .center()
+        val resourceId = tapTargetNode.attributes["resource-id"]
+        if (!resourceId.isNullOrBlank() && !resourceId.startsWith("flt-semantic-node")) {
+            runInterruptible(Dispatchers.IO) {
+                when (driver) {
+                    is maestro.drivers.CdpWebDriver -> driver.tapSemanticsIdentifier(resourceId)
+                    is maestro.drivers.WebDriver -> driver.tapSemanticsIdentifier(resourceId)
+                    else -> false
+                }
+            }
+            waitForAppToSettle(initialHierarchy, appId, waitToSettleTimeoutMs)
+        }
+
         performTap(
             x = center.x,
             y = center.y,

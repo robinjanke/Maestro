@@ -65,9 +65,20 @@ private const val PARSE_CONTEXT_ATTR = "maestroParseContext"
 // Per-parse cache so per-command provenance is O(1) instead of re-tokenizing
 // the full YAML for every command. Offsets reference [source] verbatim — no
 // normalization — so SourceInfo offsets stay aligned with whatever was on disk.
-private class ParseContext(val source: String, val path: String?) {
+private class ParseContext(
+    val source: String,
+    val path: String?,
+    val requireDevice: Boolean = shouldRequireDevice(),
+) {
     val lines: List<String> = source.lines()
     private val lineStarts: IntArray = computeLineStarts(source)
+
+    companion object {
+        fun shouldRequireDevice(): Boolean {
+            val value = System.getenv("MAESTRO_REQUIRE_DEVICE") ?: return true
+            return value != "false" && value != "0"
+        }
+    }
 
     fun offsetOf(line: Int, column: Int): Int {
         val idx = (line - 1).coerceIn(0, lineStarts.size - 1)
@@ -253,6 +264,10 @@ private fun wrapException(error: Throwable, parser: JsonParser, contentPath: Pat
                     |
                     |For mobile apps, use:
                     |```yaml
+                    |device:
+                    |  name: iphone-1
+                    |  type: iPhone 17 Pro Max
+                    |  version: iOS 26
                     |appId: com.example.app
                     |---
                     |- launchApp
@@ -260,7 +275,32 @@ private fun wrapException(error: Throwable, parser: JsonParser, contentPath: Pat
                     |
                     |For web apps, use:
                     |```yaml
+                    |device:
+                    |  name: chrome-1
+                    |  type: chrome
+                    |  version: latest
                     |url: https://example.com
+                    |---
+                    |- launchApp
+                    |```
+                """.trimMargin("|"),
+                docs = DOCS_FIRST_FLOW,
+            )
+            "missing_device" -> FlowParseException(
+                location = e.location ?: parser.currentLocation(),
+                contentPath = contentPath,
+                content = content,
+                title = "Config Field Required: device",
+                errorMessage = """
+                    |Every flow must declare which device it runs on via a `device` block in the config section.
+                    |
+                    |```yaml
+                    |device:
+                    |  name: iphone-1
+                    |  type: iPhone 17 Pro Max
+                    |  version: iOS 26
+                    |  category: ios
+                    |appId: com.example.app
                     |---
                     |- launchApp
                     |```
@@ -683,6 +723,10 @@ object MaestroFlowParser {
 
         val reader = (parser.codec as ObjectMapper).readerFor(YamlConfig::class.java)
             .withAttribute(PARSE_CONTEXT_ATTR, ctx)
-        return reader.readValue<YamlConfig>(parser)
+        val config = reader.readValue<YamlConfig>(parser)
+        if (ctx.requireDevice && config.device == null) {
+            throw ConfigParseError("missing_device")
+        }
+        return config
     }
 }

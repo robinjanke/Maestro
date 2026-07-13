@@ -65,6 +65,10 @@ object Filters {
                             || regex.pattern == value
                             || regex.matches(strippedValue)
                             || regex.pattern == strippedValue
+                            || strippedValue.contains(regex.pattern)
+                            || value.contains(regex.pattern)
+                            || regex.find(strippedValue) != null
+                            || regex.find(value) != null
                 } ?: false
             }.toSet()
 

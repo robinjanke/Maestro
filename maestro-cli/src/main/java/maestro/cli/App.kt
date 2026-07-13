@@ -34,6 +34,7 @@ import maestro.cli.command.ListDevicesCommand
 import maestro.cli.command.LoginCommand
 import maestro.cli.command.LogoutCommand
 import maestro.cli.command.McpCommand
+import maestro.cli.command.PlanDevicesCommand
 import maestro.cli.command.PrintHierarchyCommand
 import maestro.cli.command.QueryCommand
 import maestro.cli.command.RecordCommand
@@ -74,6 +75,7 @@ import kotlin.system.exitProcess
         GenerateCompletion::class,
         ChatCommand::class,
         CheckSyntaxCommand::class,
+        PlanDevicesCommand::class,
         DriverCommand::class,
         McpCommand::class,
     ]
