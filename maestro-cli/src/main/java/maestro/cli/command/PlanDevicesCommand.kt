@@ -81,9 +81,10 @@ class PlanDevicesCommand : Callable<Int> {
             "gitlab-ci-workers" -> {
                 val catalog = catalogPath
                     ?: throw CliError("--catalog is required when --format=gitlab-ci-workers")
+                val loaded = DevicePlanService.loadCatalog(catalog)
                 listOf("macos", "linux", "windows").forEach { group ->
                     println("# WORKER_PIPELINE: $group")
-                    println(generateGitlabCiWorker(group, catalog))
+                    println(generateGitlabCiWorker(group, loaded))
                 }
             }
             else -> throw CliError("Unsupported format: $format")
