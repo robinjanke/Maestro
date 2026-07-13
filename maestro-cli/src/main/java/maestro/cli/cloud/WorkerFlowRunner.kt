@@ -64,6 +64,9 @@ object WorkerFlowRunner {
                     exitCode = 1
                     continue
                 }
+                System.out.println(
+                    "Running flow ${assignment.flowPath} on device ${assignment.deviceName} (${assignment.platform})",
+                )
                 val instanceId = locals.firstOrNull { it.catalogName == assignment.deviceName }?.instanceId
                 val result = executeFlow(flowFile, assignment.platform, instanceId)
                 runBlocking {

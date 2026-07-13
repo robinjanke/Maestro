@@ -50,24 +50,25 @@ class CloudSessionClientCommand : Callable<Int> {
     private lateinit var junitReport: Path
 
     override fun call(): Int {
-        val plan = DevicePlanService.plan(flowsRoot)
+        val catalogData = DevicePlanService.loadCatalog(catalogPath)
+        val plan = CloudFlowPlanner.planForCloud(flowsRoot, catalogData)
         if (!plan.isValid) {
             plan.errors.forEach { System.err.println(it) }
             return 1
         }
 
-        val catalog = Files.readString(catalogPath)
-        val catalogData = DevicePlanService.loadCatalog(catalogPath)
-        val enabledDevices = plan.orderedFlows.mapNotNull { flow ->
-            plan.flowDeviceByPath[flow]
-        }.distinct().filter { deviceName ->
-            val entry = catalogData.devices[deviceName] ?: return@filter true
-            val enabledVar = entry.enabledVar ?: return@filter true
-            System.getenv(enabledVar) == "true"
-        }
+        val enabledDevices = plan.devices.keys.toList()
         val workerGroups = enabledDevices.mapNotNull { deviceName ->
             catalogData.devices[deviceName]?.workerGroup
         }.distinct()
+
+        val catalog = Files.readString(catalogPath)
+
+        val totalFlows = plan.orderedFlows.size
+        println("Cloud flow plan: ${totalFlows} flow(s) on device(s): ${enabledDevices.joinToString()}")
+        plan.orderedFlows.forEachIndexed { index, flow ->
+            println("  ${index + 1}. ${flow} (${plan.flowDeviceByPath[flow]})")
+        }
 
         val flowPlan = FlowPlan(
             orderedFlows = plan.orderedFlows,
@@ -106,9 +107,29 @@ class CloudSessionClientCommand : Callable<Int> {
 
             val deadline = System.currentTimeMillis() + timeoutSeconds * 1000
             var last: SessionStatus = created.status
+            var lastProgressLogMs = 0L
             while (System.currentTimeMillis() < deadline) {
                 val view = runBlocking { client.getSession(created.sessionId) }
                 last = view.status
+                val now = System.currentTimeMillis()
+                if (now - lastProgressLogMs >= 5000) {
+                    lastProgressLogMs = now
+                    val completed = view.flowResults.size
+                    val failed = view.flowResults.count { !it.success }
+                    val pending = plan.orderedFlows.filter { flow ->
+                        flow !in view.flowResults.map { it.flowPath }.toSet()
+                    }
+                    val current = pending.firstOrNull()
+                    println(
+                        "Session ${view.status}: $completed/$totalFlows completed" +
+                            (if (failed > 0) " ($failed failed)" else "") +
+                            (current?.let { ", running or next: $it" } ?: ""),
+                    )
+                    view.flowResults.lastOrNull()?.let { result ->
+                        val mark = if (result.success) "ok" else "FAILED"
+                        println("  last finished: ${result.flowPath} [$mark]")
+                    }
+                }
                 when (view.status) {
                     SessionStatus.COMPLETED -> {
                         writeJunit(view.junitXml)
