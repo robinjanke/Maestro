@@ -101,6 +101,8 @@ class PlanDevicesCommand : Callable<Int> {
         builder.appendLine("  - prepare")
         builder.appendLine("  - e2e-test")
         builder.appendLine()
+        appendChildPipelineVariables(builder)
+        builder.appendLine()
         builder.appendLine("include:")
         builder.appendLine("  - project: \"public-code/pipelines/app-project-pipelines\"")
         builder.appendLine("    ref: \"${System.getenv("PIPELINE_LIB_VERSION") ?: "main"}\"")
@@ -192,5 +194,30 @@ class PlanDevicesCommand : Callable<Int> {
         }
 
         return builder.toString().trimEnd() + "\n"
+    }
+
+    private fun appendChildPipelineVariables(builder: StringBuilder) {
+        builder.appendLine("variables:")
+        builder.appendLine("  GIT_CLONE_PATH: \"\"")
+        appendQuotedEnv(builder, "PIPELINE_LIB_VERSION", "main")
+        appendQuotedEnv(builder, "E2E_COMPONENT_REPO_PATHS")
+        appendQuotedEnv(builder, "E2E_COMPONENT_DEFAULT_BRANCH", "main")
+        appendQuotedEnv(builder, "TARGET_WEB_URL")
+        appendQuotedEnv(builder, "TARGET_BASE_URL")
+        appendQuotedEnv(builder, "TARGET_FRONTEND_URL")
+        appendQuotedEnv(builder, "E2E_BACKEND_BASE_URL")
+        appendQuotedEnv(builder, "E2E_TEST_WEB")
+        appendQuotedEnv(builder, "E2E_TEST_DESKTOP_MACOS")
+        appendQuotedEnv(builder, "E2E_TEST_DESKTOP_WINDOWS")
+        appendQuotedEnv(builder, "E2E_TEST_DESKTOP_LINUX")
+        appendQuotedEnv(builder, "E2E_USE_LIFECYCLE_RUNNER")
+        appendQuotedEnv(builder, "E2E_PRE_CLEANUP")
+        appendQuotedEnv(builder, "MAESTRO_COLLECTED_DIR", ".maestro-collected")
+    }
+
+    private fun appendQuotedEnv(builder: StringBuilder, name: String, default: String? = null) {
+        val value = System.getenv(name) ?: default ?: return
+        val escaped = value.replace("\\", "\\\\").replace("\"", "\\\"")
+        builder.appendLine("  ${name}: \"${escaped}\"")
     }
 }
