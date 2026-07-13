@@ -1,20 +1,18 @@
 package maestro.orchestra.yaml
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize
+
 /**
- * Declares which physical or virtual device a Maestro flow must run on.
+ * Declares which device a Maestro flow runs on.
  *
- * Example:
+ * Preferred (catalog reference):
  * ```yaml
- * device:
- *   name: iphone-1
- *   type: iPhone 17 Pro Max
- *   version: iOS 26
- *   category: ios
- * appId: ${APP_ID}
- * ---
- * - launchApp
+ * device: iphone-1
  * ```
+ *
+ * Legacy object form is still accepted.
  */
+@JsonDeserialize(using = YamlDeviceDeserializer::class)
 data class YamlDevice(
     val name: String,
     val type: String? = null,

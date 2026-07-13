@@ -28,6 +28,8 @@ data class DevicePlanDevice(
 
 data class DevicePlan(
     val devices: Map<String, DevicePlanDevice> = emptyMap(),
+    val orderedFlows: List<String> = emptyList(),
+    val flowDeviceByPath: Map<String, String> = emptyMap(),
     val errors: List<String> = emptyList(),
 ) {
     val isValid: Boolean get() = errors.isEmpty() && devices.isNotEmpty()
@@ -61,6 +63,8 @@ object DevicePlanService {
         }
 
         val flowsByDevice = linkedMapOf<String, MutableList<DevicePlanFlow>>()
+        val orderedFlows = mutableListOf<String>()
+        val flowDeviceByPath = linkedMapOf<String, String>()
         val errors = mutableListOf<String>()
 
         val flowFiles = Files.walk(flowsRoot).use { stream ->
@@ -89,12 +93,15 @@ object DevicePlanService {
                 if (deviceFilter != null && device.name != deviceFilter) {
                     continue
                 }
+                val relative = relativePath(flowsRoot, flowPath)
                 val entry = DevicePlanFlow(
-                    path = relativePath(flowsRoot, flowPath),
+                    path = relative,
                     device = device,
                     url = config.url,
                     appId = config.appId.takeIf { config.url == null },
                 )
+                orderedFlows += relative
+                flowDeviceByPath[relative] = device.name
                 flowsByDevice.getOrPut(device.name) { mutableListOf() }.add(entry)
             } catch (e: Exception) {
                 errors += "${relativePath(flowsRoot, flowPath)}: ${e.message ?: e.javaClass.simpleName}"
@@ -108,7 +115,7 @@ object DevicePlanService {
                 type = first.type,
                 version = first.version,
                 category = first.category,
-                flows = flows.map { it.path }.sorted(),
+                flows = flows.map { it.path },
             )
         }
 
@@ -116,7 +123,12 @@ object DevicePlanService {
             errors += "No flows found for device '$deviceFilter' under $flowsRoot"
         }
 
-        return DevicePlan(devices = devices, errors = errors)
+        return DevicePlan(
+            devices = devices,
+            orderedFlows = orderedFlows,
+            flowDeviceByPath = flowDeviceByPath,
+            errors = errors,
+        )
     }
 
     fun loadCatalog(catalogPath: Path): DeviceCatalog {

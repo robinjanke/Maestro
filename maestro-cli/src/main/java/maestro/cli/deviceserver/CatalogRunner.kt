@@ -1,8 +1,6 @@
 package maestro.cli.deviceserver
 
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import maestro.orchestra.yaml.DeviceCatalog
 import maestro.orchestra.yaml.DevicePlan
@@ -13,12 +11,9 @@ import java.util.UUID
 
 object CatalogRunner {
     fun resolveExpectedDevices(catalog: DeviceCatalog, plan: DevicePlan, enabledEnv: Map<String, String>): Set<String> {
-        val waves = if (catalog.executionWaves.isNotEmpty()) {
-            catalog.executionWaves
-        } else {
-            plan.devices.keys.sorted().map { listOf(it) }
-        }
-        return waves.flatten()
+        return plan.orderedFlows
+            .mapNotNull { plan.flowDeviceByPath[it] }
+            .distinct()
             .filter { plan.devices.containsKey(it) }
             .filter { deviceName ->
                 val entry = catalog.devices[deviceName] ?: return@filter true
@@ -36,37 +31,24 @@ object CatalogRunner {
         env: Map<String, String>,
         junitReportPath: Path? = null,
     ): CatalogRunReport = runBlocking {
-        val waves = if (catalog.executionWaves.isNotEmpty()) {
-            catalog.executionWaves
-        } else {
-            plan.devices.keys.sorted().map { listOf(it) }
-        }
-
+        val enabledDevices = resolveExpectedDevices(catalog, plan, env)
         val results = mutableListOf<FlowRunReport>()
 
-        for (wave in waves) {
-            val waveDevices = wave.filter { plan.devices.containsKey(it) }
-            if (waveDevices.isEmpty()) continue
+        for (relativeFlow in plan.orderedFlows) {
+            val deviceName = plan.flowDeviceByPath[relativeFlow] ?: continue
+            if (deviceName !in enabledDevices) continue
 
-            val waveResults = coroutineScope {
-                waveDevices.map { deviceName ->
-                    async {
-                        runDeviceFlows(
-                            client = client,
-                            flowsRoot = flowsRoot,
-                            catalog = catalog,
-                            plan = plan,
-                            deviceName = deviceName,
-                            env = env,
-                        )
-                    }
-                }.awaitAll().flatten()
-            }
-            results += waveResults
-
-            if (waveResults.any { !it.success }) {
-                break
-            }
+            val result = runSingleFlow(
+                client = client,
+                flowsRoot = flowsRoot,
+                catalog = catalog,
+                plan = plan,
+                deviceName = deviceName,
+                relativeFlow = relativeFlow,
+                env = env,
+            )
+            results += result
+            if (!result.success) break
         }
 
         val junitPath = junitReportPath?.also { path ->
@@ -80,39 +62,34 @@ object CatalogRunner {
         )
     }
 
-    private suspend fun runDeviceFlows(
+    private suspend fun runSingleFlow(
         client: DeviceServerClient,
         flowsRoot: Path,
         catalog: DeviceCatalog,
         plan: DevicePlan,
         deviceName: String,
+        relativeFlow: String,
         env: Map<String, String>,
-    ): List<FlowRunReport> {
+    ): FlowRunReport {
         val catalogEntry = catalog.devices[deviceName]
         val platform = catalogEntry?.maestroPlatform ?: plan.devices[deviceName]?.category ?: "web"
-        val devicePlan = plan.devices[deviceName] ?: return emptyList()
+        val flowPath = flowsRoot.resolve(relativeFlow)
+        val flowContent = Files.readString(flowPath)
+        val jobId = UUID.randomUUID().toString()
 
-        val orderedFlows = orderFlows(devicePlan.flows, catalogEntry?.useLifecycleRunner == true, platform)
+        client.enqueueJob(
+            ExecuteFlowRequest(
+                jobId = jobId,
+                catalogDeviceName = deviceName,
+                flowPath = relativeFlow,
+                flowContent = flowContent,
+                platform = platform,
+                env = env,
+                headless = platform == "web",
+            ),
+        )
 
-        return orderedFlows.map { relativeFlow ->
-            val flowPath = flowsRoot.resolve(relativeFlow)
-            val flowContent = Files.readString(flowPath)
-            val jobId = UUID.randomUUID().toString()
-
-            client.enqueueJob(
-                ExecuteFlowRequest(
-                    jobId = jobId,
-                    catalogDeviceName = deviceName,
-                    flowPath = relativeFlow,
-                    flowContent = flowContent,
-                    platform = platform,
-                    env = env,
-                    headless = platform == "web",
-                ),
-            )
-
-            waitForJobCompletion(client, jobId, deviceName, relativeFlow)
-        }
+        return waitForJobCompletion(client, jobId, deviceName, relativeFlow)
     }
 
     private suspend fun waitForJobCompletion(
@@ -135,34 +112,9 @@ object CatalogRunner {
                     output = result.output,
                 )
             }
-            kotlinx.coroutines.delay(2000)
+            delay(2000)
         }
         return FlowRunReport(deviceName, flowPath, success = false, exitCode = 1, durationMs = timeoutMs)
-    }
-
-    fun orderFlows(flows: List<String>, useLifecycle: Boolean, platform: String): List<String> {
-        if (!useLifecycle || platform != "web") return flows.sorted()
-
-        val ordered = mutableListOf<String>()
-        fun addIfPresent(path: String) {
-            if (path in flows) ordered += path
-        }
-
-        addIfPresent("customer-frontend/web/lifecycle/01_register.yaml")
-        addIfPresent("customer-frontend/web/lifecycle/02_create_organization.yaml")
-
-        flows.filter { flow ->
-            !flow.startsWith("customer-frontend/web/lifecycle/") &&
-                !flow.startsWith("e2e-tests/backend/") &&
-                !flow.startsWith("e2e-tests/smoke/")
-        }.sorted().forEach { ordered += it }
-
-        addIfPresent("e2e-tests/backend/healthz.yaml")
-        addIfPresent("e2e-tests/smoke/backend_healthz.yaml")
-        addIfPresent("customer-frontend/web/lifecycle/99_delete_organization.yaml")
-        addIfPresent("customer-frontend/web/lifecycle/99_delete_account.yaml")
-
-        return ordered.distinct()
     }
 
     fun loadPlanAndCatalog(flowsRoot: Path, catalogPath: Path): Pair<DevicePlan, DeviceCatalog> {

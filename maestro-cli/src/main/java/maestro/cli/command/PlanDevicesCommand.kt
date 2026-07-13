@@ -230,7 +230,8 @@ class PlanDevicesCommand : Callable<Int> {
             "windows" -> "doppelt-digital-windows-shell"
             else -> "doppelt-digital-docker"
         }
-        val image = "eclipse-temurin:17-jdk-jammy"
+        val maestroRunnerImage = System.getenv("MAESTRO_RUNNER_IMAGE")
+            ?: "gitlab.doppelt-digital.com:5050/internal/modules/docker/maestro-runner:development"
 
         val builder = StringBuilder()
         builder.appendLine("stages:")
@@ -239,6 +240,7 @@ class PlanDevicesCommand : Callable<Int> {
         builder.appendLine("variables:")
         builder.appendLine("  GIT_CLONE_PATH: \"\"")
         builder.appendLine("  PIPELINE_LIB_VERSION: \"$pipelineLibVersion\"")
+        builder.appendLine("  MAESTRO_RUNNER_IMAGE: \"$maestroRunnerImage\"")
         builder.appendLine("  WORKER_GROUP: \"$workerGroup\"")
         builder.appendLine("  DEVICE_SERVER_URL: \"\$DEVICE_SERVER_URL\"")
         builder.appendLine("  DEVICE_SERVER_TOKEN: \"\$DEVICE_SERVER_TOKEN\"")
@@ -247,7 +249,7 @@ class PlanDevicesCommand : Callable<Int> {
         builder.appendLine("device-server-join:")
         builder.appendLine("  stage: workers")
         if (useDockerImage) {
-            builder.appendLine("  image: $image")
+            builder.appendLine("  image: \$MAESTRO_RUNNER_IMAGE")
         }
         if (workerGroup == "windows") {
             builder.appendLine("  shell: bash")
@@ -265,18 +267,24 @@ class PlanDevicesCommand : Callable<Int> {
         builder.appendLine("    GIT_CLONE_PATH: \"\"")
         builder.appendLine("  before_script:")
         if (useDockerImage) {
-            builder.appendLine("    - apt-get update && apt-get install -y curl ca-certificates git bash || true")
+            builder.appendLine("    - export MAESTRO_CLI_NO_ANALYTICS=1")
+            builder.appendLine("    - maestro --version")
+        } else {
+            builder.appendLine("    - |")
+            builder.appendLine("      set -euo pipefail")
+            builder.appendLine("      export MAESTRO_CLI_NO_ANALYTICS=1")
+            builder.appendLine("      if ! command -v maestro >/dev/null 2>&1; then")
+            builder.appendLine("        if [ ! -f \"\${CI_PROJECT_DIR}/.pipeline-lib/bin/install-maestro-fork.sh\" ]; then")
+            builder.appendLine("          git clone --depth 1 \\")
+            builder.appendLine("            \"https://gitlab-ci-token:\${CI_JOB_TOKEN}@\${CI_SERVER_HOST}/public-code/pipelines/app-project-pipelines.git\" \\")
+            builder.appendLine("            \"\${CI_PROJECT_DIR}/.pipeline-lib\"")
+            builder.appendLine("          bash \"\${CI_PROJECT_DIR}/.pipeline-lib/bin/setup-pipeline-lib.sh\"")
+            builder.appendLine("        fi")
+            builder.appendLine("        bash \"\${CI_PROJECT_DIR}/.pipeline-lib/bin/install-maestro-fork.sh\"")
+            builder.appendLine("        export PATH=\"\${HOME}/.maestro/bin:\${PATH}\"")
+            builder.appendLine("      fi")
+            builder.appendLine("      maestro --version")
         }
-        builder.appendLine("    - |")
-        builder.appendLine("      if [ ! -f \"\${CI_PROJECT_DIR}/.pipeline-lib/bin/install-maestro-fork.sh\" ]; then")
-        builder.appendLine("        git clone --depth 1 \\")
-        builder.appendLine("          \"https://gitlab-ci-token:\${CI_JOB_TOKEN}@\${CI_SERVER_HOST}/public-code/pipelines/app-project-pipelines.git\" \\")
-        builder.appendLine("          \"\${CI_PROJECT_DIR}/.pipeline-lib\"")
-        builder.appendLine("        bash \"\${CI_PROJECT_DIR}/.pipeline-lib/bin/setup-pipeline-lib.sh\"")
-        builder.appendLine("      fi")
-        builder.appendLine("    - bash \"\${CI_PROJECT_DIR}/.pipeline-lib/bin/install-maestro-fork.sh\"")
-        builder.appendLine("    - export PATH=\"\${HOME}/.maestro/bin:\${PATH}\"")
-        builder.appendLine("    - export MAESTRO_CLI_NO_ANALYTICS=1")
         builder.appendLine("  script:")
         builder.appendLine("    - |")
         builder.appendLine("      set -euo pipefail")
