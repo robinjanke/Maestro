@@ -189,9 +189,10 @@ class PlanDevicesCommand : Callable<Int> {
                     builder.appendLine("  rules:")
                     builder.appendLine("    - if: \$${it} == \"true\"")
                 }
-                if (catalogEntry.runnerTags.isNotEmpty()) {
+                val jobTags = resolveDeviceJobTags(catalogEntry)
+                if (jobTags.isNotEmpty()) {
                     builder.appendLine("  tags:")
-                    catalogEntry.runnerTags.forEach { tag ->
+                    jobTags.forEach { tag ->
                         builder.appendLine("    - ${tag}")
                     }
                 }
@@ -223,9 +224,10 @@ class PlanDevicesCommand : Callable<Int> {
         catalog: maestro.orchestra.yaml.DeviceCatalog,
     ): String {
         val pipelineLibVersion = System.getenv("PIPELINE_LIB_VERSION") ?: "main"
+        val useDockerImage = workerGroup == "linux"
         val primaryTag = when (workerGroup) {
             "macos" -> "doppelt-digital-macos"
-            "windows" -> "doppelt-digital-windows"
+            "windows" -> "doppelt-digital-windows-shell"
             else -> "doppelt-digital-docker"
         }
         val image = "eclipse-temurin:17-jdk-jammy"
@@ -244,18 +246,25 @@ class PlanDevicesCommand : Callable<Int> {
         builder.appendLine()
         builder.appendLine("device-server-join:")
         builder.appendLine("  stage: workers")
-        builder.appendLine("  image: $image")
+        if (useDockerImage) {
+            builder.appendLine("  image: $image")
+        }
+        if (workerGroup == "windows") {
+            builder.appendLine("  shell: bash")
+        }
         builder.appendLine("  tags:")
         builder.appendLine("    - $primaryTag")
-        catalog.devices.filter { (_, entry) -> entry.workerGroup == workerGroup }.values
-            .flatMap { it.runnerTags }
-            .distinct()
-            .filter { it != primaryTag }
-            .forEach { tag -> builder.appendLine("    - $tag") }
+        if (useDockerImage) {
+            catalog.devices.filter { (_, entry) -> entry.workerGroup == workerGroup }.values
+                .flatMap { it.runnerTags }
+                .distinct()
+                .filter { it != primaryTag }
+                .forEach { tag -> builder.appendLine("    - $tag") }
+        }
         builder.appendLine("  variables:")
         builder.appendLine("    GIT_CLONE_PATH: \"\"")
         builder.appendLine("  before_script:")
-        if (workerGroup != "macos" && workerGroup != "windows") {
+        if (useDockerImage) {
             builder.appendLine("    - apt-get update && apt-get install -y curl ca-certificates git bash || true")
         }
         builder.appendLine("    - |")
@@ -286,6 +295,18 @@ class PlanDevicesCommand : Callable<Int> {
         builder.appendLine("        --catalog \"\${CI_PROJECT_DIR}/\${MAESTRO_DEVICE_CATALOG}\"")
         builder.appendLine()
         return builder.toString().trimEnd() + "\n"
+    }
+
+    private fun resolveDeviceJobTags(
+        catalogEntry: maestro.orchestra.yaml.DeviceCatalogEntry,
+    ): List<String> {
+        if (catalogEntry.runnerTags.isEmpty()) {
+            return emptyList()
+        }
+        if (catalogEntry.category == "ios" && catalogEntry.workerGroup == "macos") {
+            return listOf("doppelt-digital-macos")
+        }
+        return catalogEntry.runnerTags
     }
 
     private fun appendChildPipelineVariables(builder: StringBuilder) {
