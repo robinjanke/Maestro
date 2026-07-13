@@ -5,5 +5,7 @@
 rm -rf ~/.maestro/bin
 rm -rf ~/.maestro/lib
 
-cp -r ./maestro-cli/build/install/maestro/bin ~/.maestro/bin
-cp -r ./maestro-cli/build/install/maestro/lib ~/.maestro/lib
+mkdir -p ~/.maestro/bin ~/.maestro/lib
+
+cp -r ./maestro-cli/build/install/maestro/bin/* ~/.maestro/bin/
+cp -r ./maestro-cli/build/install/maestro/lib/* ~/.maestro/lib/
