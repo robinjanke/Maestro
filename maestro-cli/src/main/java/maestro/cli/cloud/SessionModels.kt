@@ -37,6 +37,7 @@ data class CreateSessionResponse(
     val sessionId: String,
     val sessionToken: String,
     val status: SessionStatus,
+    val error: String? = null,
 )
 
 data class AttachedDevice(

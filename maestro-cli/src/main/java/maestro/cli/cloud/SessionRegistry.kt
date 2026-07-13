@@ -57,7 +57,12 @@ class SessionRegistry(
                 updatedAt = Instant.now(),
             )
             store.update(failed)
-            throw IllegalStateException("Failed to trigger maestro-devices pipeline")
+            return CreateSessionResponse(
+                sessionId = sessionId,
+                sessionToken = sessionToken,
+                status = SessionStatus.FAILED,
+                error = failed.error,
+            )
         }
 
         val updated = record.copy(gitlabPipelineId = pipelineId, updatedAt = Instant.now())

@@ -59,10 +59,32 @@ class CloudServer private constructor(
 
                     post("/v1/sessions") {
                         if (!call.requireApiKey(apiKeyValidator)) return@post
-                        val body = call.receiveText()
-                        val request = mapper.readValue<CreateSessionRequest>(body)
-                        val response = registry.createSession(request)
-                        call.respondJson(mapper, response, HttpStatusCode.Created)
+                        try {
+                            val body = call.receiveText()
+                            val request = mapper.readValue<CreateSessionRequest>(body)
+                            val response = registry.createSession(request)
+                            if (response.status == SessionStatus.FAILED) {
+                                call.respondJson(
+                                    mapper,
+                                    mapOf(
+                                        "sessionId" to response.sessionId,
+                                        "status" to response.status,
+                                        "error" to response.error,
+                                    ),
+                                    HttpStatusCode.BadGateway,
+                                )
+                                return@post
+                            }
+                            call.respondJson(mapper, response, HttpStatusCode.Created)
+                        } catch (error: Exception) {
+                            System.out.println("createSession failed: ${error.message}")
+                            error.printStackTrace(System.out)
+                            call.respondJson(
+                                mapper,
+                                mapOf("error" to (error.message ?: "create session failed")),
+                                HttpStatusCode.InternalServerError,
+                            )
+                        }
                     }
 
                     get("/v1/sessions/{id}") {
