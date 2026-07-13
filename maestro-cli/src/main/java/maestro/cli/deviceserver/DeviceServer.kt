@@ -3,7 +3,9 @@ package maestro.cli.deviceserver
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.engine.ApplicationEngine
 import io.ktor.server.engine.embeddedServer
@@ -50,18 +52,18 @@ class DeviceServer private constructor(
             val engine = embeddedServer(Netty, host = host, port = port) {
                 routing {
                     get("/health") {
-                        call.respond(registry.health())
+                        call.respondJson(mapper, registry.health())
                     }
 
                     get("/devices") {
-                        call.respond(registry.registeredDeviceNames().sorted())
+                        call.respondJson(mapper, registry.registeredDeviceNames().sorted())
                     }
 
                     post("/register") {
                         val body = call.receiveText()
                         val request = mapper.readValue<WorkerRegistrationRequest>(body)
                         registry.registerWorker(request)
-                        call.respond(mapOf("status" to "registered", "devices" to request.devices.size))
+                        call.respondJson(mapper, mapOf("status" to "registered", "devices" to request.devices.size))
                     }
 
                     post("/poll") {
@@ -72,7 +74,7 @@ class DeviceServer private constructor(
                         if (job == null) {
                             call.respond(HttpStatusCode.NoContent)
                         } else {
-                            call.respond(job)
+                            call.respondJson(mapper, job)
                         }
                     }
 
@@ -80,7 +82,7 @@ class DeviceServer private constructor(
                         val body = call.receiveText()
                         val result = mapper.readValue<ExecuteFlowResult>(body)
                         registry.completeJob(result)
-                        call.respond(mapOf("status" to "ok"))
+                        call.respondJson(mapper, mapOf("status" to "ok"))
                     }
 
                     get("/jobs/{jobId}") {
@@ -89,7 +91,7 @@ class DeviceServer private constructor(
                         if (result == null) {
                             call.respond(HttpStatusCode.NotFound)
                         } else {
-                            call.respond(result)
+                            call.respondJson(mapper, result)
                         }
                     }
 
@@ -97,12 +99,12 @@ class DeviceServer private constructor(
                         val body = call.receiveText()
                         val request = mapper.readValue<ExecuteFlowRequest>(body)
                         registry.enqueueJob(request)
-                        call.respond(mapOf("status" to "queued", "jobId" to request.jobId))
+                        call.respondJson(mapper, mapOf("status" to "queued", "jobId" to request.jobId))
                     }
 
                     post("/shutdown") {
                         registry.requestShutdown()
-                        call.respond(mapOf("status" to "shutting_down"))
+                        call.respondJson(mapper, mapOf("status" to "shutting_down"))
                     }
                 }
             }
@@ -123,4 +125,8 @@ class DeviceServer private constructor(
             )
         }
     }
+}
+
+private suspend fun ApplicationCall.respondJson(mapper: ObjectMapper, payload: Any) {
+    respondText(mapper.writeValueAsString(payload), ContentType.Application.Json)
 }
