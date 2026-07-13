@@ -1,4 +1,4 @@
-package maestro.cli.deviceserver
+package maestro.cli.cloud
 
 import maestro.device.Device
 import maestro.device.DeviceService

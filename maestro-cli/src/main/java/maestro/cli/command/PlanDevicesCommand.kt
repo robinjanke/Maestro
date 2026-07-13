@@ -36,7 +36,7 @@ class PlanDevicesCommand : Callable<Int> {
 
     @CommandLine.Option(
         names = ["--format"],
-        description = ["Output format: json, list-flows, gitlab-ci, gitlab-ci-worker, gitlab-ci-workers"],
+        description = ["Output format: json, list-flows, gitlab-ci"],
         defaultValue = "json",
     )
     private lateinit var format: String
@@ -70,22 +70,6 @@ class PlanDevicesCommand : Callable<Int> {
                 val catalog = catalogPath
                     ?: throw CliError("--catalog is required when --format=gitlab-ci")
                 println(generateGitlabCi(plan, DevicePlanService.loadCatalog(catalog)))
-            }
-            "gitlab-ci-worker" -> {
-                val catalog = catalogPath
-                    ?: throw CliError("--catalog is required when --format=gitlab-ci-worker")
-                val group = workerGroup
-                    ?: throw CliError("--worker-group is required when --format=gitlab-ci-worker")
-                println(generateGitlabCiWorker(group, DevicePlanService.loadCatalog(catalog)))
-            }
-            "gitlab-ci-workers" -> {
-                val catalog = catalogPath
-                    ?: throw CliError("--catalog is required when --format=gitlab-ci-workers")
-                val loaded = DevicePlanService.loadCatalog(catalog)
-                listOf("macos", "linux", "windows").forEach { group ->
-                    println("# WORKER_PIPELINE: $group")
-                    println(generateGitlabCiWorker(group, loaded))
-                }
             }
             else -> throw CliError("Unsupported format: $format")
         }
@@ -216,92 +200,6 @@ class PlanDevicesCommand : Callable<Int> {
             previousWaveJobs.addAll(waveDevices.map { "${it}-tests" })
         }
 
-        return builder.toString().trimEnd() + "\n"
-    }
-
-    private fun generateGitlabCiWorker(
-        workerGroup: String,
-        catalog: maestro.orchestra.yaml.DeviceCatalog,
-    ): String {
-        val pipelineLibVersion = System.getenv("PIPELINE_LIB_VERSION") ?: "main"
-        val useDockerImage = workerGroup == "linux"
-        val primaryTag = when (workerGroup) {
-            "macos" -> "doppelt-digital-macos"
-            "windows" -> "doppelt-digital-windows-shell"
-            else -> "doppelt-digital-docker"
-        }
-        val maestroRunnerImage = System.getenv("MAESTRO_RUNNER_IMAGE")
-            ?: "gitlab.doppelt-digital.com:5050/internal/modules/docker/maestro-runner:development"
-
-        val builder = StringBuilder()
-        builder.appendLine("stages:")
-        builder.appendLine("  - workers")
-        builder.appendLine()
-        builder.appendLine("variables:")
-        builder.appendLine("  GIT_CLONE_PATH: \"\"")
-        builder.appendLine("  PIPELINE_LIB_VERSION: \"$pipelineLibVersion\"")
-        builder.appendLine("  MAESTRO_RUNNER_IMAGE: \"$maestroRunnerImage\"")
-        builder.appendLine("  WORKER_GROUP: \"$workerGroup\"")
-        builder.appendLine("  DEVICE_SERVER_URL: \"\$DEVICE_SERVER_URL\"")
-        builder.appendLine("  DEVICE_SERVER_TOKEN: \"\$DEVICE_SERVER_TOKEN\"")
-        builder.appendLine("  MAESTRO_DEVICE_CATALOG: \"maestro/devices.catalog.yaml\"")
-        builder.appendLine()
-        builder.appendLine("device-server-join:")
-        builder.appendLine("  stage: workers")
-        if (useDockerImage) {
-            builder.appendLine("  image: \$MAESTRO_RUNNER_IMAGE")
-        }
-        if (workerGroup == "windows") {
-            builder.appendLine("  shell: bash")
-        }
-        builder.appendLine("  tags:")
-        builder.appendLine("    - $primaryTag")
-        if (useDockerImage) {
-            catalog.devices.filter { (_, entry) -> entry.workerGroup == workerGroup }.values
-                .flatMap { it.runnerTags }
-                .distinct()
-                .filter { it != primaryTag }
-                .forEach { tag -> builder.appendLine("    - $tag") }
-        }
-        builder.appendLine("  variables:")
-        builder.appendLine("    GIT_CLONE_PATH: \"\"")
-        builder.appendLine("  before_script:")
-        if (useDockerImage) {
-            builder.appendLine("    - export MAESTRO_CLI_NO_ANALYTICS=1")
-            builder.appendLine("    - maestro --version")
-        } else {
-            builder.appendLine("    - |")
-            builder.appendLine("      set -euo pipefail")
-            builder.appendLine("      export MAESTRO_CLI_NO_ANALYTICS=1")
-            builder.appendLine("      if ! command -v maestro >/dev/null 2>&1; then")
-            builder.appendLine("        if [ ! -f \"\${CI_PROJECT_DIR}/.pipeline-lib/bin/install-maestro-fork.sh\" ]; then")
-            builder.appendLine("          git clone --depth 1 \\")
-            builder.appendLine("            \"https://gitlab-ci-token:\${CI_JOB_TOKEN}@\${CI_SERVER_HOST}/public-code/pipelines/app-project-pipelines.git\" \\")
-            builder.appendLine("            \"\${CI_PROJECT_DIR}/.pipeline-lib\"")
-            builder.appendLine("          bash \"\${CI_PROJECT_DIR}/.pipeline-lib/bin/setup-pipeline-lib.sh\"")
-            builder.appendLine("        fi")
-            builder.appendLine("        bash \"\${CI_PROJECT_DIR}/.pipeline-lib/bin/install-maestro-fork.sh\"")
-            builder.appendLine("        export PATH=\"\${HOME}/.maestro/bin:\${PATH}\"")
-            builder.appendLine("      fi")
-            builder.appendLine("      maestro --version")
-        }
-        builder.appendLine("  script:")
-        builder.appendLine("    - |")
-        builder.appendLine("      set -euo pipefail")
-        builder.appendLine("      if [ -z \"\${DEVICE_SERVER_URL:-}\" ]; then")
-        builder.appendLine("        echo \"DEVICE_SERVER_URL is required\" >&2")
-        builder.appendLine("        exit 1")
-        builder.appendLine("      fi")
-        builder.appendLine("      if [ -z \"\${DEVICE_SERVER_TOKEN:-}\" ]; then")
-        builder.appendLine("        echo \"DEVICE_SERVER_TOKEN is required\" >&2")
-        builder.appendLine("        exit 1")
-        builder.appendLine("      fi")
-        builder.appendLine("      export DEVICE_SERVER_TOKEN")
-        builder.appendLine("      maestro device-server join \\")
-        builder.appendLine("        --url \"\${DEVICE_SERVER_URL}\" \\")
-        builder.appendLine("        --group \"\${WORKER_GROUP}\" \\")
-        builder.appendLine("        --catalog \"\${CI_PROJECT_DIR}/\${MAESTRO_DEVICE_CATALOG}\"")
-        builder.appendLine()
         return builder.toString().trimEnd() + "\n"
     }
 

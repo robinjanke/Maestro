@@ -28,7 +28,8 @@ import maestro.cli.command.ChatCommand
 import maestro.cli.command.CheckSyntaxCommand
 import maestro.cli.command.CloudCommand
 import maestro.cli.command.DownloadSamplesCommand
-import maestro.cli.command.DeviceServerCommand
+import maestro.cli.command.CloudServerCommand
+import maestro.cli.command.CloudWorkerCommand
 import maestro.cli.command.DriverCommand
 import maestro.cli.command.ListCloudDevicesCommand
 import maestro.cli.command.ListDevicesCommand
@@ -77,7 +78,8 @@ import kotlin.system.exitProcess
         ChatCommand::class,
         CheckSyntaxCommand::class,
         PlanDevicesCommand::class,
-        DeviceServerCommand::class,
+        CloudServerCommand::class,
+        CloudWorkerCommand::class,
         DriverCommand::class,
         McpCommand::class,
     ]

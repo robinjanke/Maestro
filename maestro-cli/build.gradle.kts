@@ -186,6 +186,7 @@ dependencies {
     implementation(libs.jcodec)
     implementation(libs.jcodec.awt)
     implementation(libs.square.okhttp)
+    implementation(libs.sqlite.jdbc)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.cio)
     implementation(libs.ktor.server.core)
