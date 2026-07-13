@@ -101,9 +101,6 @@ class PlanDevicesCommand : Callable<Int> {
         builder.appendLine("  - prepare")
         builder.appendLine("  - e2e-test")
         builder.appendLine()
-        builder.appendLine("variables:")
-        builder.appendLine("  GIT_CLONE_PATH: \"\$CI_BUILDS_DIR/\$CI_PROJECT_PATH/pipeline_\$CI_PIPELINE_ID\"")
-        builder.appendLine()
         builder.appendLine("include:")
         builder.appendLine("  - project: \"public-code/pipelines/app-project-pipelines\"")
         builder.appendLine("    ref: \"${System.getenv("PIPELINE_LIB_VERSION") ?: "main"}\"")
@@ -112,6 +109,8 @@ class PlanDevicesCommand : Callable<Int> {
 
         builder.appendLine("prepare-e2e-flows:")
         builder.appendLine("  stage: prepare")
+        builder.appendLine("  variables:")
+        builder.appendLine("    GIT_CLONE_PATH: \"\"")
         builder.appendLine("  image: alpine:3.21")
         builder.appendLine("  tags:")
         builder.appendLine("    - doppelt-digital-docker")
