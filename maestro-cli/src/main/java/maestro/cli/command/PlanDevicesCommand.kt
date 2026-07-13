@@ -102,7 +102,7 @@ class PlanDevicesCommand : Callable<Int> {
         builder.appendLine("  - e2e-test")
         builder.appendLine()
         builder.appendLine("variables:")
-        builder.appendLine("  GIT_CLONE_PATH: \"$CI_BUILDS_DIR/$CI_PROJECT_PATH/pipeline_$CI_PIPELINE_ID\"")
+        builder.appendLine("  GIT_CLONE_PATH: \"\$CI_BUILDS_DIR/\$CI_PROJECT_PATH/pipeline_\$CI_PIPELINE_ID\"")
         builder.appendLine()
         builder.appendLine("include:")
         builder.appendLine("  - project: \"public-code/pipelines/app-project-pipelines\"")
