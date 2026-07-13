@@ -134,7 +134,7 @@ class CloudSessionClientCommand : Callable<Int> {
 
     private fun writeJunit(xml: String?) {
         if (xml.isNullOrBlank()) return
-        Files.createDirectories(junitReport.parent)
+        junitReport.parent?.let { Files.createDirectories(it) }
         Files.writeString(junitReport, xml)
     }
 }
