@@ -8,7 +8,7 @@ import maestro.cli.deviceserver.CatalogRunner
 import maestro.cli.deviceserver.DeviceServer
 import maestro.cli.deviceserver.DeviceServerClient
 import maestro.cli.deviceserver.JunitReportWriter
-import maestro.orchestra.yaml.DevicePlanService
+import maestro.cli.deviceserver.resolveDeviceServerToken
 import picocli.CommandLine
 import java.net.InetAddress
 import java.nio.file.Path
@@ -44,6 +44,9 @@ class DeviceServerStartCommand : Callable<Int> {
     @CommandLine.Option(names = ["--url-out"], description = ["Write device-server URL to this file"])
     private var urlOut: Path? = null
 
+    @CommandLine.Option(names = ["--token"], description = ["Auth token (or DEVICE_SERVER_TOKEN env)"])
+    private var token: String? = null
+
     override fun call(): Int {
         val (plan, catalog) = if (catalogPath != null && flowsRoot != null) {
             CatalogRunner.loadPlanAndCatalog(flowsRoot!!, catalogPath!!)
@@ -58,7 +61,13 @@ class DeviceServerStartCommand : Callable<Int> {
             emptySet()
         }
 
-        val server = DeviceServer.start(host = host, port = port, expectedDevices = expectedDevices)
+        val authToken = resolveDeviceServerToken(token)
+        val server = DeviceServer.start(
+            host = host,
+            port = port,
+            expectedDevices = expectedDevices,
+            authToken = authToken,
+        )
         val publicHost = System.getenv("E2E_DEVICE_SERVER_HOST")
             ?: InetAddress.getLocalHost().hostAddress
         val publicUrl = "http://$publicHost:${server.port}"
@@ -74,7 +83,7 @@ class DeviceServerStartCommand : Callable<Int> {
             return 0
         }
 
-        DeviceServerClient(publicUrl).use { client ->
+        DeviceServerClient(publicUrl, authToken).use { client ->
             println("Waiting for devices: $expectedDevices")
             runBlocking {
                 client.waitUntilReady(expectedDevices, waitTimeoutSeconds)

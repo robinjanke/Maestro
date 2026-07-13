@@ -11,6 +11,7 @@ import picocli.CommandLine
         DeviceServerListLocalDevicesCommand::class,
         DeviceServerWaitReadyCommand::class,
         DeviceServerRunCatalogCommand::class,
+        DeviceServerRunClientCommand::class,
     ],
 )
 class DeviceServerCommand

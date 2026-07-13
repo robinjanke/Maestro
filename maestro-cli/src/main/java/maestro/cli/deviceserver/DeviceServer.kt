@@ -44,22 +44,27 @@ class DeviceServer private constructor(
             host: String = "0.0.0.0",
             port: Int = 8765,
             expectedDevices: Set<String> = emptySet(),
+            authToken: String? = null,
         ): DeviceServer {
             val registry = DeviceServerRegistry(expectedDevices)
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             val mapper = jacksonObjectMapper()
+            val token = authToken?.trim()?.takeIf { it.isNotEmpty() }
 
             val engine = embeddedServer(Netty, host = host, port = port) {
                 routing {
                     get("/health") {
+                        if (!call.requireDeviceServerToken(token)) return@get
                         call.respondJson(mapper, registry.health())
                     }
 
                     get("/devices") {
+                        if (!call.requireDeviceServerToken(token)) return@get
                         call.respondJson(mapper, registry.registeredDeviceNames().sorted())
                     }
 
                     post("/register") {
+                        if (!call.requireDeviceServerToken(token)) return@post
                         val body = call.receiveText()
                         val request = mapper.readValue<WorkerRegistrationRequest>(body)
                         registry.registerWorker(request)
@@ -67,6 +72,7 @@ class DeviceServer private constructor(
                     }
 
                     post("/poll") {
+                        if (!call.requireDeviceServerToken(token)) return@post
                         val body = call.receiveText()
                         val payload = mapper.readValue<Map<String, String>>(body)
                         val workerId = payload["workerId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
@@ -79,6 +85,7 @@ class DeviceServer private constructor(
                     }
 
                     post("/complete") {
+                        if (!call.requireDeviceServerToken(token)) return@post
                         val body = call.receiveText()
                         val result = mapper.readValue<ExecuteFlowResult>(body)
                         registry.completeJob(result)
@@ -86,6 +93,7 @@ class DeviceServer private constructor(
                     }
 
                     get("/jobs/{jobId}") {
+                        if (!call.requireDeviceServerToken(token)) return@get
                         val jobId = call.parameters["jobId"]
                         val result = jobId?.let { registry.jobResult(it) }
                         if (result == null) {
@@ -96,6 +104,7 @@ class DeviceServer private constructor(
                     }
 
                     post("/execute") {
+                        if (!call.requireDeviceServerToken(token)) return@post
                         val body = call.receiveText()
                         val request = mapper.readValue<ExecuteFlowRequest>(body)
                         registry.enqueueJob(request)
@@ -103,6 +112,7 @@ class DeviceServer private constructor(
                     }
 
                     post("/shutdown") {
+                        if (!call.requireDeviceServerToken(token)) return@post
                         registry.requestShutdown()
                         call.respondJson(mapper, mapOf("status" to "shutting_down"))
                     }

@@ -7,6 +7,7 @@ import maestro.cli.deviceserver.LocalDeviceService
 import maestro.cli.deviceserver.WorkerDeviceRegistration
 import maestro.cli.deviceserver.WorkerExecutor
 import maestro.cli.deviceserver.WorkerRegistrationRequest
+import maestro.cli.deviceserver.resolveDeviceServerToken
 import maestro.orchestra.yaml.DevicePlanService
 import picocli.CommandLine
 import java.nio.file.Path
@@ -31,7 +32,12 @@ class DeviceServerJoinCommand : Callable<Int> {
     @CommandLine.Option(names = ["--worker-id"], description = ["Worker identifier"])
     private var workerId: String? = null
 
+    @CommandLine.Option(names = ["--token"], description = ["Auth token (or DEVICE_SERVER_TOKEN env)"])
+    private var token: String? = null
+
     override fun call(): Int {
+        val authToken = resolveDeviceServerToken(token)
+            ?: throw CliError("DEVICE_SERVER_TOKEN is required for workers")
         val group = workerGroup ?: LocalDeviceService.hostOs()
         val id = workerId ?: "${group}-${UUID.randomUUID()}"
 
@@ -67,7 +73,7 @@ class DeviceServerJoinCommand : Callable<Int> {
             throw CliError("No catalog devices could be mapped for worker group '$group'")
         }
 
-        DeviceServerClient(serverUrl).use { client ->
+        DeviceServerClient(serverUrl, authToken).use { client ->
             runBlocking {
                 client.register(
                     WorkerRegistrationRequest(

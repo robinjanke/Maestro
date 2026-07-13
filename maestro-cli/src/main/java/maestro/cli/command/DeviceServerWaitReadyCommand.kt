@@ -3,6 +3,7 @@ package maestro.cli.command
 import kotlinx.coroutines.runBlocking
 import maestro.cli.CliError
 import maestro.cli.deviceserver.DeviceServerClient
+import maestro.cli.deviceserver.resolveDeviceServerToken
 import maestro.orchestra.yaml.DevicePlanService
 import picocli.CommandLine
 import java.nio.file.Path
@@ -26,6 +27,9 @@ class DeviceServerWaitReadyCommand : Callable<Int> {
     @CommandLine.Option(names = ["--timeout"], defaultValue = "600")
     private var timeoutSeconds: Long = 600
 
+    @CommandLine.Option(names = ["--token"], description = ["Auth token (or DEVICE_SERVER_TOKEN env)"])
+    private var token: String? = null
+
     override fun call(): Int {
         val plan = DevicePlanService.plan(flowsRoot)
         if (!plan.isValid) throw CliError(plan.errors.joinToString("\n"))
@@ -33,7 +37,9 @@ class DeviceServerWaitReadyCommand : Callable<Int> {
         val enabledEnv = System.getenv().filterKeys { it.startsWith("E2E_TEST_") }
         val expected = maestro.cli.deviceserver.CatalogRunner.resolveExpectedDevices(catalog, plan, enabledEnv)
 
-        DeviceServerClient(serverUrl).use { client ->
+        val authToken = resolveDeviceServerToken(token)
+
+        DeviceServerClient(serverUrl, authToken).use { client ->
             val health = runBlocking {
                 client.waitUntilReady(expected, timeoutSeconds)
             }
