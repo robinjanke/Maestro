@@ -36,10 +36,16 @@ class PlanDevicesCommand : Callable<Int> {
 
     @CommandLine.Option(
         names = ["--format"],
-        description = ["Output format: json, list-flows, gitlab-ci"],
+        description = ["Output format: json, list-flows, gitlab-ci, gitlab-ci-worker, gitlab-ci-workers"],
         defaultValue = "json",
     )
     private lateinit var format: String
+
+    @CommandLine.Option(
+        names = ["--worker-group"],
+        description = ["Worker group for --format=gitlab-ci-worker: macos, linux, windows"],
+    )
+    private var workerGroup: String? = null
 
     override fun call(): Int {
         val plan = DevicePlanService.plan(flowsRoot, deviceFilter)
@@ -64,6 +70,21 @@ class PlanDevicesCommand : Callable<Int> {
                 val catalog = catalogPath
                     ?: throw CliError("--catalog is required when --format=gitlab-ci")
                 println(generateGitlabCi(plan, DevicePlanService.loadCatalog(catalog)))
+            }
+            "gitlab-ci-worker" -> {
+                val catalog = catalogPath
+                    ?: throw CliError("--catalog is required when --format=gitlab-ci-worker")
+                val group = workerGroup
+                    ?: throw CliError("--worker-group is required when --format=gitlab-ci-worker")
+                println(generateGitlabCiWorker(group, DevicePlanService.loadCatalog(catalog)))
+            }
+            "gitlab-ci-workers" -> {
+                val catalog = catalogPath
+                    ?: throw CliError("--catalog is required when --format=gitlab-ci-workers")
+                listOf("macos", "linux", "windows").forEach { group ->
+                    println("# WORKER_PIPELINE: $group")
+                    println(generateGitlabCiWorker(group, catalog))
+                }
             }
             else -> throw CliError("Unsupported format: $format")
         }
@@ -196,6 +217,68 @@ class PlanDevicesCommand : Callable<Int> {
         return builder.toString().trimEnd() + "\n"
     }
 
+    private fun generateGitlabCiWorker(
+        workerGroup: String,
+        catalog: maestro.orchestra.yaml.DeviceCatalog,
+    ): String {
+        val pipelineLibVersion = System.getenv("PIPELINE_LIB_VERSION") ?: "main"
+        val primaryTag = when (workerGroup) {
+            "macos" -> "doppelt-digital-macos"
+            "windows" -> "doppelt-digital-windows"
+            else -> "doppelt-digital-docker"
+        }
+        val image = "eclipse-temurin:17-jdk-jammy"
+
+        val builder = StringBuilder()
+        builder.appendLine("stages:")
+        builder.appendLine("  - workers")
+        builder.appendLine()
+        builder.appendLine("variables:")
+        builder.appendLine("  GIT_CLONE_PATH: \"\"")
+        builder.appendLine("  PIPELINE_LIB_VERSION: \"$pipelineLibVersion\"")
+        builder.appendLine("  WORKER_GROUP: \"$workerGroup\"")
+        builder.appendLine("  DEVICE_SERVER_URL: \"\$DEVICE_SERVER_URL\"")
+        builder.appendLine("  MAESTRO_DEVICE_CATALOG: \"maestro/devices.catalog.yaml\"")
+        builder.appendLine()
+        builder.appendLine("device-server-join:")
+        builder.appendLine("  stage: workers")
+        builder.appendLine("  image: $image")
+        builder.appendLine("  tags:")
+        builder.appendLine("    - $primaryTag")
+        catalog.devices.filter { (_, entry) -> entry.workerGroup == workerGroup }.values
+            .flatMap { it.runnerTags }
+            .distinct()
+            .filter { it != primaryTag }
+            .forEach { tag -> builder.appendLine("    - $tag") }
+        builder.appendLine("  variables:")
+        builder.appendLine("    GIT_CLONE_PATH: \"\"")
+        builder.appendLine("  before_script:")
+        builder.appendLine("    - apt-get update && apt-get install -y curl ca-certificates git bash || true")
+        builder.appendLine("    - |")
+        builder.appendLine("      if [ ! -f \"\${CI_PROJECT_DIR}/.pipeline-lib/bin/install-maestro-fork.sh\" ]; then")
+        builder.appendLine("        git clone --depth 1 \\")
+        builder.appendLine("          \"https://gitlab-ci-token:\${CI_JOB_TOKEN}@\${CI_SERVER_HOST}/public-code/pipelines/app-project-pipelines.git\" \\")
+        builder.appendLine("          \"\${CI_PROJECT_DIR}/.pipeline-lib\"")
+        builder.appendLine("        bash \"\${CI_PROJECT_DIR}/.pipeline-lib/bin/setup-pipeline-lib.sh\"")
+        builder.appendLine("      fi")
+        builder.appendLine("    - bash \"\${CI_PROJECT_DIR}/.pipeline-lib/bin/install-maestro-fork.sh\"")
+        builder.appendLine("    - export PATH=\"\${HOME}/.maestro/bin:\${PATH}\"")
+        builder.appendLine("    - export MAESTRO_CLI_NO_ANALYTICS=1")
+        builder.appendLine("  script:")
+        builder.appendLine("    - |")
+        builder.appendLine("      set -euo pipefail")
+        builder.appendLine("      if [ -z \"\${DEVICE_SERVER_URL:-}\" ]; then")
+        builder.appendLine("        echo \"DEVICE_SERVER_URL is required\" >&2")
+        builder.appendLine("        exit 1")
+        builder.appendLine("      fi")
+        builder.appendLine("      maestro device-server join \\")
+        builder.appendLine("        --url \"\${DEVICE_SERVER_URL}\" \\")
+        builder.appendLine("        --group \"\${WORKER_GROUP}\" \\")
+        builder.appendLine("        --catalog \"\${CI_PROJECT_DIR}/\${MAESTRO_DEVICE_CATALOG}\"")
+        builder.appendLine()
+        return builder.toString().trimEnd() + "\n"
+    }
+
     private fun appendChildPipelineVariables(builder: StringBuilder) {
         builder.appendLine("variables:")
         builder.appendLine("  GIT_CLONE_PATH: \"\"")
@@ -207,6 +290,8 @@ class PlanDevicesCommand : Callable<Int> {
         appendQuotedEnv(builder, "TARGET_FRONTEND_URL")
         appendQuotedEnv(builder, "E2E_BACKEND_BASE_URL")
         appendQuotedEnv(builder, "E2E_TEST_WEB")
+        appendQuotedEnv(builder, "E2E_TEST_IOS")
+        appendQuotedEnv(builder, "E2E_TEST_ANDROID")
         appendQuotedEnv(builder, "E2E_TEST_DESKTOP_MACOS")
         appendQuotedEnv(builder, "E2E_TEST_DESKTOP_WINDOWS")
         appendQuotedEnv(builder, "E2E_TEST_DESKTOP_LINUX")

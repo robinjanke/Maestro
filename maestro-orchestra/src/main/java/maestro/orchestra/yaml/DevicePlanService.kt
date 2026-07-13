@@ -43,6 +43,8 @@ data class DeviceCatalogEntry(
     val flowsSubpath: String? = null,
     val useLifecycleRunner: Boolean = false,
     val enabledVar: String? = null,
+    val workerGroup: String? = null,
+    val localDeviceSelector: String? = null,
 )
 
 data class DeviceCatalog(
@@ -137,6 +139,8 @@ object DevicePlanService {
                 flowsSubpath = entry["flows_subpath"] as? String,
                 useLifecycleRunner = entry["use_lifecycle_runner"] as? Boolean ?: false,
                 enabledVar = entry["enabled_var"] as? String,
+                workerGroup = entry["worker_group"] as? String,
+                localDeviceSelector = entry["local_device_selector"] as? String,
             )
         }
 
