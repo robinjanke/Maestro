@@ -111,19 +111,26 @@ class CloudSessionClientCommand : Callable<Int> {
                 println("Cloud session ${created.sessionId} created (status=${created.status})")
 
                 val lastEventAt = AtomicLong(System.currentTimeMillis())
+                val lastEventSeq = AtomicLong(0)
                 var lastStatus = created.status
                 var lastCompletedCount = 0
                 var workerPipelineLogged = false
 
                 coroutineScope {
                     val streamJob = async {
-                        runCatching {
-                            client.streamEvents(created.sessionId) { event ->
-                                lastEventAt.set(System.currentTimeMillis())
-                                printEvent(event)
+                        while (true) {
+                            val result = runCatching {
+                                client.streamEvents(created.sessionId, lastEventSeq.get()) { event ->
+                                    lastEventAt.set(System.currentTimeMillis())
+                                    lastEventSeq.set(event.seq)
+                                    printEvent(event)
+                                }
                             }
-                        }.onFailure { error ->
-                            System.err.println("SSE stream ended: ${error.message}")
+                            if (result.isSuccess) break
+                            System.err.println(
+                                "SSE stream ended: ${result.exceptionOrNull()?.message} (reconnecting)",
+                            )
+                            delay(2000)
                         }
                     }
 

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -23,7 +24,20 @@ class CloudServerClient(
     private val apiKey: String? = null,
     private val sessionToken: String? = null,
 ) {
-    private val client = HttpClient(CIO)
+    private val client = HttpClient(CIO) {
+        install(HttpTimeout) {
+            connectTimeoutMillis = 30_000
+            requestTimeoutMillis = 120_000
+            socketTimeoutMillis = 120_000
+        }
+    }
+    private val streamClient = HttpClient(CIO) {
+        install(HttpTimeout) {
+            connectTimeoutMillis = 30_000
+            requestTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
+            socketTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
+        }
+    }
     private val mapper: ObjectMapper = cloudObjectMapper()
 
     suspend fun health(): CloudHealth {
@@ -95,7 +109,7 @@ class CloudServerClient(
         since: Long = 0,
         onEvent: (SessionEvent) -> Unit,
     ) {
-        client.prepareGet("$baseUrl/v1/sessions/$sessionId/stream?since=$since") {
+        streamClient.prepareGet("$baseUrl/v1/sessions/$sessionId/stream?since=$since") {
             apiKey?.let { header(MAESTRO_API_KEY_HEADER, it) }
             header(HttpHeaders.Accept, "text/event-stream")
             header(HttpHeaders.CacheControl, "no-cache")
@@ -124,5 +138,6 @@ class CloudServerClient(
 
     fun close() {
         client.close()
+        streamClient.close()
     }
 }
