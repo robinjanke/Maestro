@@ -62,6 +62,7 @@ data class FlowAssignment(
 data class WorkerAttachResponse(
     val status: String,
     val assignedFlows: List<FlowAssignment>,
+    val env: Map<String, String> = emptyMap(),
 )
 
 data class FlowResultRequest(

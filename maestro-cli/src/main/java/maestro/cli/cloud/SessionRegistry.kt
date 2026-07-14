@@ -118,7 +118,7 @@ class SessionRegistry(
         )
         store.update(updated)
 
-        return WorkerAttachResponse(status = "attached", assignedFlows = assignedFlows)
+        return WorkerAttachResponse(status = "attached", assignedFlows = assignedFlows, env = record.env)
     }
 
     fun recordResult(sessionId: String, request: FlowResultRequest): FlowResultResponse {

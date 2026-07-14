@@ -56,6 +56,7 @@ object WorkerFlowRunner {
             }
 
             var exitCode = 0
+            val sessionEnv = attachResponse.env
             for (assignment in attachResponse.assignedFlows) {
                 val flowFile = flowsRoot.resolve(assignment.flowPath).toFile()
                 if (!flowFile.exists()) {
@@ -68,7 +69,7 @@ object WorkerFlowRunner {
                     "Running flow ${assignment.flowPath} on device ${assignment.deviceName} (${assignment.platform})",
                 )
                 val instanceId = locals.firstOrNull { it.catalogName == assignment.deviceName }?.instanceId
-                val result = executeFlow(flowFile, assignment.platform, instanceId)
+                val result = executeFlow(flowFile, assignment.platform, instanceId, sessionEnv)
                 runBlocking {
                     client.postResult(
                         sessionId,
@@ -119,14 +120,22 @@ object WorkerFlowRunner {
         val durationMs: Long,
     )
 
-    private fun executeFlow(flowFile: File, platform: String, instanceId: String?): LocalFlowResult {
+    private fun executeFlow(
+        flowFile: File,
+        platform: String,
+        instanceId: String?,
+        sessionEnv: Map<String, String>,
+    ): LocalFlowResult {
         val start = System.currentTimeMillis()
         return try {
             val command = buildMaestroCommand(flowFile, platform, instanceId)
-            val process = ProcessBuilder(command)
+            val processBuilder = ProcessBuilder(command)
                 .directory(flowFile.parentFile)
                 .redirectErrorStream(true)
-                .start()
+            if (sessionEnv.isNotEmpty()) {
+                processBuilder.environment().putAll(sessionEnv)
+            }
+            val process = processBuilder.start()
             val output = process.inputStream.bufferedReader().readText()
             val finished = process.waitFor(30, TimeUnit.MINUTES)
             val exitCode = if (finished) process.exitValue() else {

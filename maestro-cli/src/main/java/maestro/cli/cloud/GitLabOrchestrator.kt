@@ -45,7 +45,7 @@ class GitLabOrchestrator(
             variables["MAESTRO_PARENT_PROJECT_PATH"] = clientProjectPath
         }
         env.forEach { (key, value) ->
-            if (key.startsWith("E2E_") && value.isNotBlank()) {
+            if ((key.startsWith("E2E_") || key.startsWith("TARGET_")) && value.isNotBlank()) {
                 variables[key] = value
             }
         }
