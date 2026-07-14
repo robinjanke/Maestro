@@ -1,8 +1,7 @@
 package maestro.cli.command
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import com.fasterxml.jackson.module.kotlin.readValue
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import maestro.cli.cloud.ArtifactRef
@@ -10,12 +9,15 @@ import maestro.cli.cloud.CloudFlowPlanner
 import maestro.cli.cloud.CloudServerClient
 import maestro.cli.cloud.CreateSessionRequest
 import maestro.cli.cloud.FlowPlan
+import maestro.cli.cloud.SessionEvent
+import maestro.cli.cloud.SessionEventType
 import maestro.cli.cloud.SessionStatus
 import maestro.orchestra.yaml.DevicePlanService
 import picocli.CommandLine
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.Callable
+import java.util.concurrent.atomic.AtomicLong
 
 @CommandLine.Command(
     name = "run-session",
@@ -46,6 +48,9 @@ class CloudSessionClientCommand : Callable<Int> {
 
     @CommandLine.Option(names = ["--timeout"], defaultValue = "3600")
     private var timeoutSeconds: Long = 3600
+
+    @CommandLine.Option(names = ["--stall-seconds"], defaultValue = "1200")
+    private var stallSeconds: Long = 1200
 
     @CommandLine.Option(names = ["--junit-report"], defaultValue = "maestro-cloud-junit.xml")
     private lateinit var junitReport: Path
@@ -86,8 +91,8 @@ class CloudSessionClientCommand : Callable<Int> {
         val client = CloudServerClient(serverUrl.trimEnd('/'), apiKey = apiKey)
         var sessionId: String? = null
         try {
-            val created = runBlocking {
-                client.createSession(
+            return runBlocking {
+                val created = client.createSession(
                     CreateSessionRequest(
                         devices = enabledDevices,
                         flowPlan = flowPlan,
@@ -102,55 +107,101 @@ class CloudSessionClientCommand : Callable<Int> {
                         workerGroups = workerGroups,
                     ),
                 )
-            }
-            sessionId = created.sessionId
-            println("Cloud session ${created.sessionId} created (status=${created.status})")
+                sessionId = created.sessionId
+                println("Cloud session ${created.sessionId} created (status=${created.status})")
 
-            val deadline = System.currentTimeMillis() + timeoutSeconds * 1000
-            var last: SessionStatus = created.status
-            var lastProgressLogMs = 0L
-            while (System.currentTimeMillis() < deadline) {
-                val view = runBlocking { client.getSession(created.sessionId) }
-                last = view.status
-                val now = System.currentTimeMillis()
-                if (now - lastProgressLogMs >= 5000) {
-                    lastProgressLogMs = now
-                    val completed = view.flowResults.size
-                    val failed = view.flowResults.count { !it.success }
-                    val pending = plan.orderedFlows.filter { flow ->
-                        flow !in view.flowResults.map { it.flowPath }.toSet()
+                val lastEventAt = AtomicLong(System.currentTimeMillis())
+                var lastStatus = created.status
+                var lastCompletedCount = 0
+                var workerPipelineLogged = false
+
+                coroutineScope {
+                    val streamJob = async {
+                        runCatching {
+                            client.streamEvents(created.sessionId) { event ->
+                                lastEventAt.set(System.currentTimeMillis())
+                                printEvent(event)
+                            }
+                        }.onFailure { error ->
+                            System.err.println("SSE stream ended: ${error.message}")
+                        }
                     }
-                    val current = pending.firstOrNull()
-                    println(
-                        "Session ${view.status}: $completed/$totalFlows completed" +
-                            (if (failed > 0) " ($failed failed)" else "") +
-                            (current?.let { ", running or next: $it" } ?: ""),
-                    )
-                    view.flowResults.lastOrNull()?.let { result ->
-                        val mark = if (result.success) "ok" else "FAILED"
-                        println("  last finished: ${result.flowPath} [$mark]")
+
+                    val deadline = System.currentTimeMillis() + timeoutSeconds * 1000
+                    var exitCode = 1
+                    while (System.currentTimeMillis() < deadline) {
+                        val idleSeconds = (System.currentTimeMillis() - lastEventAt.get()) / 1000
+                        if (idleSeconds >= stallSeconds) {
+                            System.err.println(
+                                "No cloud session activity for ${idleSeconds}s (limit ${stallSeconds}s) — aborting",
+                            )
+                            client.cancelSession(created.sessionId)
+                            streamJob.cancel()
+                            return@coroutineScope 1
+                        }
+
+                        val view = client.getSession(created.sessionId)
+                        if (!workerPipelineLogged && view.gitlabPipelineId != null) {
+                            workerPipelineLogged = true
+                            val host = System.getenv("CI_SERVER_HOST") ?: "gitlab.doppelt-digital.com"
+                            println(
+                                "Maestro devices worker pipeline: " +
+                                    "https://${host}/internal/maestro-devices/-/pipelines/${view.gitlabPipelineId}",
+                            )
+                        }
+                        if (view.status != lastStatus) {
+                            lastEventAt.set(System.currentTimeMillis())
+                            lastStatus = view.status
+                        }
+                        if (view.flowResults.size > lastCompletedCount) {
+                            lastEventAt.set(System.currentTimeMillis())
+                            lastCompletedCount = view.flowResults.size
+                        }
+
+                        when (view.status) {
+                            SessionStatus.COMPLETED -> {
+                                writeJunit(view.junitXml)
+                                exitCode = if (view.flowResults.all { it.success }) 0 else 1
+                                break
+                            }
+                            SessionStatus.FAILED, SessionStatus.CANCELLED -> {
+                                writeJunit(view.junitXml)
+                                view.error?.let { System.err.println(it) }
+                                exitCode = 1
+                                break
+                            }
+                            else -> delay(5000)
+                        }
                     }
-                }
-                when (view.status) {
-                    SessionStatus.COMPLETED -> {
-                        writeJunit(view.junitXml)
-                        return if (view.flowResults.all { it.success }) 0 else 1
+
+                    streamJob.cancel()
+                    if (System.currentTimeMillis() >= deadline) {
+                        System.err.println("Timed out waiting for session after ${timeoutSeconds}s (last=$lastStatus)")
                     }
-                    SessionStatus.FAILED, SessionStatus.CANCELLED -> {
-                        writeJunit(view.junitXml)
-                        view.error?.let { System.err.println(it) }
-                        return 1
-                    }
-                    else -> runBlocking { delay(5000) }
+                    exitCode
                 }
             }
-            System.err.println("Timed out waiting for session after ${timeoutSeconds}s (last=$last)")
-            return 1
         } finally {
             sessionId?.let { id ->
                 runCatching { runBlocking { client.cancelSession(id) } }
             }
             client.close()
+        }
+    }
+
+    private fun printEvent(event: SessionEvent) {
+        when (event.type) {
+            SessionEventType.FLOW_STARTED -> {
+                println(">>> START ${event.flowPath} on ${event.deviceName}")
+            }
+            SessionEventType.LOG_LINE -> {
+                println("[${event.flowPath}] ${event.message}")
+            }
+            SessionEventType.FLOW_FINISHED -> {
+                val mark = if (event.success == true) "ok" else "FAILED"
+                println("<<< DONE ${event.flowPath} [$mark]")
+            }
+            SessionEventType.STATUS_CHANGED -> Unit
         }
     }
 

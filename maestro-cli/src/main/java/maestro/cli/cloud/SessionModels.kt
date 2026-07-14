@@ -1,6 +1,7 @@
 package maestro.cli.cloud
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import java.time.Instant
 
 enum class SessionStatus {
     PROVISIONING,
@@ -88,6 +89,36 @@ data class FlowResultRecord(
     val output: String = "",
 )
 
+enum class SessionEventType {
+    FLOW_STARTED,
+    LOG_LINE,
+    FLOW_FINISHED,
+    STATUS_CHANGED,
+}
+
+data class SessionEvent(
+    val seq: Long,
+    val type: SessionEventType,
+    val timestamp: Instant,
+    val flowPath: String? = null,
+    val deviceName: String? = null,
+    val message: String? = null,
+    val success: Boolean? = null,
+)
+
+data class SessionEventRequest(
+    val type: SessionEventType,
+    val flowPath: String? = null,
+    val deviceName: String? = null,
+    val message: String? = null,
+    val success: Boolean? = null,
+)
+
+data class SessionEventResponse(
+    val seq: Long,
+    val status: String = "accepted",
+)
+
 data class SessionView(
     val sessionId: String,
     val status: SessionStatus,
@@ -98,6 +129,9 @@ data class SessionView(
     val junitXml: String? = null,
     val error: String? = null,
     val gitlabPipelineId: Long? = null,
+    val currentFlow: String? = null,
+    val currentFlowSince: Instant? = null,
+    val lastEventSeq: Long = 0,
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)

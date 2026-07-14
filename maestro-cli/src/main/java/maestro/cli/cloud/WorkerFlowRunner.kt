@@ -2,10 +2,12 @@ package maestro.cli.cloud
 
 import kotlinx.coroutines.runBlocking
 import maestro.cli.cloud.LocalDeviceService
+import java.io.BufferedReader
 import java.io.File
 import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 object WorkerFlowRunner {
     fun attachAndRun(
@@ -68,8 +70,27 @@ object WorkerFlowRunner {
                 System.out.println(
                     "Running flow ${assignment.flowPath} on device ${assignment.deviceName} (${assignment.platform})",
                 )
+                runBlocking {
+                    client.postEvent(
+                        sessionId,
+                        SessionEventRequest(
+                            type = SessionEventType.FLOW_STARTED,
+                            flowPath = assignment.flowPath,
+                            deviceName = assignment.deviceName,
+                        ),
+                    )
+                }
                 val instanceId = locals.firstOrNull { it.catalogName == assignment.deviceName }?.instanceId
-                val result = executeFlow(flowFile, assignment.platform, instanceId, sessionEnv)
+                val result = executeFlow(
+                    client = client,
+                    sessionId = sessionId,
+                    flowPath = assignment.flowPath,
+                    deviceName = assignment.deviceName,
+                    flowFile = flowFile,
+                    platform = assignment.platform,
+                    instanceId = instanceId,
+                    sessionEnv = sessionEnv,
+                )
                 runBlocking {
                     client.postResult(
                         sessionId,
@@ -99,6 +120,23 @@ object WorkerFlowRunner {
         message: String,
     ) {
         runBlocking {
+            client.postEvent(
+                sessionId,
+                SessionEventRequest(
+                    type = SessionEventType.FLOW_STARTED,
+                    flowPath = flowPath,
+                    deviceName = deviceName,
+                ),
+            )
+            client.postEvent(
+                sessionId,
+                SessionEventRequest(
+                    type = SessionEventType.LOG_LINE,
+                    flowPath = flowPath,
+                    deviceName = deviceName,
+                    message = message,
+                ),
+            )
             client.postResult(
                 sessionId,
                 FlowResultRequest(
@@ -121,14 +159,19 @@ object WorkerFlowRunner {
     )
 
     private fun executeFlow(
+        client: CloudServerClient,
+        sessionId: String,
+        flowPath: String,
+        deviceName: String,
         flowFile: File,
         platform: String,
         instanceId: String?,
         sessionEnv: Map<String, String>,
     ): LocalFlowResult {
         val start = System.currentTimeMillis()
+        val outputBuffer = StringBuilder()
         return try {
-            val command = buildMaestroCommand(flowFile, platform, instanceId)
+            val command = buildMaestroCommand(flowFile, platform, instanceId, sessionEnv)
             val processBuilder = ProcessBuilder(command)
                 .directory(flowFile.parentFile)
                 .redirectErrorStream(true)
@@ -136,8 +179,15 @@ object WorkerFlowRunner {
                 processBuilder.environment().putAll(sessionEnv)
             }
             val process = processBuilder.start()
-            val output = process.inputStream.bufferedReader().readText()
+            val reader = process.inputStream.bufferedReader()
+            val logThread = Thread {
+                streamLogLines(client, sessionId, flowPath, deviceName, reader, outputBuffer)
+            }.apply {
+                isDaemon = true
+                start()
+            }
             val finished = process.waitFor(30, TimeUnit.MINUTES)
+            logThread.join(5000)
             val exitCode = if (finished) process.exitValue() else {
                 process.destroyForcibly()
                 -1
@@ -145,7 +195,7 @@ object WorkerFlowRunner {
             LocalFlowResult(
                 success = exitCode == 0,
                 exitCode = exitCode,
-                output = output,
+                output = outputBuffer.toString(),
                 durationMs = System.currentTimeMillis() - start,
             )
         } catch (e: Exception) {
@@ -158,7 +208,62 @@ object WorkerFlowRunner {
         }
     }
 
-    private fun buildMaestroCommand(flowFile: File, platform: String, instanceId: String?): List<String> {
+    private fun streamLogLines(
+        client: CloudServerClient,
+        sessionId: String,
+        flowPath: String,
+        deviceName: String,
+        reader: BufferedReader,
+        outputBuffer: StringBuilder,
+    ) {
+        val pendingLine = AtomicReference<String?>(null)
+        var lastFlushMs = System.currentTimeMillis()
+        try {
+            reader.forEachLine { line ->
+                synchronized(outputBuffer) {
+                    if (outputBuffer.isNotEmpty()) outputBuffer.append('\n')
+                    outputBuffer.append(line)
+                }
+                pendingLine.set(line)
+                val now = System.currentTimeMillis()
+                if (now - lastFlushMs >= 200) {
+                    flushLogLine(client, sessionId, flowPath, deviceName, pendingLine.getAndSet(null))
+                    lastFlushMs = now
+                }
+            }
+            flushLogLine(client, sessionId, flowPath, deviceName, pendingLine.getAndSet(null))
+        } catch (_: Exception) {
+            flushLogLine(client, sessionId, flowPath, deviceName, pendingLine.getAndSet(null))
+        }
+    }
+
+    private fun flushLogLine(
+        client: CloudServerClient,
+        sessionId: String,
+        flowPath: String,
+        deviceName: String,
+        line: String?,
+    ) {
+        if (line.isNullOrBlank()) return
+        runBlocking {
+            client.postEvent(
+                sessionId,
+                SessionEventRequest(
+                    type = SessionEventType.LOG_LINE,
+                    flowPath = flowPath,
+                    deviceName = deviceName,
+                    message = line,
+                ),
+            )
+        }
+    }
+
+    private fun buildMaestroCommand(
+        flowFile: File,
+        platform: String,
+        instanceId: String?,
+        sessionEnv: Map<String, String>,
+    ): List<String> {
         val maestroBin = System.getenv("MAESTRO_BIN") ?: "maestro"
         val command = mutableListOf(maestroBin, "test")
         when (platform.lowercase()) {
@@ -168,6 +273,9 @@ object WorkerFlowRunner {
             "android" -> command += listOf("--platform", "android")
         }
         instanceId?.let { command += listOf("--device", it) }
+        sessionEnv.forEach { (key, value) ->
+            command += listOf("-e", "$key=$value")
+        }
         command += flowFile.absolutePath
         return command
     }

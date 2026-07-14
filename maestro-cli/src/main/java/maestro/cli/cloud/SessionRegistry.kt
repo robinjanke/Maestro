@@ -11,6 +11,7 @@ import java.util.UUID
 class SessionRegistry(
     private val store: SessionStore,
     private val gitlab: GitLabOrchestrator?,
+    private val eventHub: SessionEventHub = SessionEventHub(),
     private val provisioningTimeoutSeconds: Long = 600,
 ) {
     private val random = SecureRandom()
@@ -70,6 +71,12 @@ class SessionRegistry(
         val updated = record.copy(gitlabPipelineId = pipelineId, updatedAt = Instant.now())
         store.update(updated)
 
+        eventHub.publish(
+            sessionId = sessionId,
+            type = SessionEventType.STATUS_CHANGED,
+            message = "session created, status=PROVISIONING",
+        )
+
         return CreateSessionResponse(
             sessionId = sessionId,
             sessionToken = sessionToken,
@@ -82,6 +89,21 @@ class SessionRegistry(
         refreshProvisioningTimeout(record)
         val refreshed = store.get(sessionId) ?: return null
         return toView(refreshed)
+    }
+
+    fun eventHub(): SessionEventHub = eventHub
+
+    fun publishEvent(sessionId: String, request: SessionEventRequest): SessionEventResponse {
+        if (store.get(sessionId) == null) throw NoSuchElementException("session not found")
+        val event = eventHub.publish(
+            sessionId = sessionId,
+            type = request.type,
+            flowPath = request.flowPath,
+            deviceName = request.deviceName,
+            message = request.message,
+            success = request.success,
+        )
+        return SessionEventResponse(seq = event.seq)
     }
 
     fun attachWorker(sessionId: String, request: WorkerAttachRequest): WorkerAttachResponse {
@@ -118,6 +140,14 @@ class SessionRegistry(
         )
         store.update(updated)
 
+        if (newStatus != record.status) {
+            eventHub.publish(
+                sessionId = sessionId,
+                type = SessionEventType.STATUS_CHANGED,
+                message = "status=${newStatus.name}",
+            )
+        }
+
         return WorkerAttachResponse(status = "attached", assignedFlows = assignedFlows, env = record.env)
     }
 
@@ -149,6 +179,21 @@ class SessionRegistry(
         )
         store.update(updated)
 
+        eventHub.publish(
+            sessionId = sessionId,
+            type = SessionEventType.FLOW_FINISHED,
+            flowPath = request.flowPath,
+            deviceName = request.deviceName,
+            success = request.success,
+        )
+        if (newStatus != record.status) {
+            eventHub.publish(
+                sessionId = sessionId,
+                type = SessionEventType.STATUS_CHANGED,
+                message = "status=${newStatus.name}",
+            )
+        }
+
         if (terminal) {
             cancelDevicesPipeline(updated)
         }
@@ -163,6 +208,11 @@ class SessionRegistry(
         }
         val updated = record.copy(status = SessionStatus.CANCELLED, updatedAt = Instant.now())
         store.update(updated)
+        eventHub.publish(
+            sessionId = sessionId,
+            type = SessionEventType.STATUS_CHANGED,
+            message = "status=CANCELLED",
+        )
         cancelDevicesPipeline(updated)
         return toView(updated)
     }
@@ -181,6 +231,11 @@ class SessionRegistry(
             updatedAt = Instant.now(),
         )
         store.update(failed)
+        eventHub.publish(
+            sessionId = record.sessionId,
+            type = SessionEventType.STATUS_CHANGED,
+            message = "status=FAILED, error=provisioning timeout",
+        )
         cancelDevicesPipeline(failed)
     }
 
@@ -215,6 +270,9 @@ class SessionRegistry(
             junitXml = junit,
             error = record.error,
             gitlabPipelineId = record.gitlabPipelineId,
+            currentFlow = eventHub.currentFlow(record.sessionId),
+            currentFlowSince = eventHub.currentFlowSince(record.sessionId),
+            lastEventSeq = eventHub.lastEventSeq(record.sessionId),
         )
     }
 

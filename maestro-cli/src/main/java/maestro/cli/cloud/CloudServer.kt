@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
@@ -13,13 +14,19 @@ import io.ktor.server.netty.Netty
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
+import io.ktor.server.response.respondTextWriter
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.runBlocking
+import java.io.Writer
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 
 class CloudServer private constructor(
     val port: Int,
@@ -128,6 +135,52 @@ class CloudServer private constructor(
                         val response = registry.recordResult(sessionId, request)
                         call.respondJson(mapper, response)
                     }
+
+                    post("/v1/sessions/{id}/events") {
+                        val sessionId = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                        if (registry.getSession(sessionId) == null) return@post call.respond(HttpStatusCode.NotFound)
+                        if (!call.requireSessionToken(registry.getSessionToken(sessionId))) return@post
+                        val body = call.receiveText()
+                        val request = mapper.readValue<SessionEventRequest>(body)
+                        val response = registry.publishEvent(sessionId, request)
+                        call.respondJson(mapper, response, HttpStatusCode.Accepted)
+                    }
+
+                    get("/v1/sessions/{id}/stream") {
+                        if (!call.requireApiKey(apiKeyValidator)) return@get
+                        val sessionId = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                        if (registry.getSession(sessionId) == null) return@get call.respond(HttpStatusCode.NotFound)
+                        val since = call.request.queryParameters["since"]?.toLongOrNull() ?: 0L
+                        call.response.headers.append(HttpHeaders.CacheControl, "no-cache")
+                        call.response.headers.append("X-Accel-Buffering", "no")
+                        call.response.headers.append(HttpHeaders.Connection, "keep-alive")
+                        val hub = registry.eventHub()
+                        call.respondTextWriter(contentType = ContentType.Text.EventStream) {
+                            hub.eventsSince(sessionId, since).forEach { event ->
+                                writeSseEvent(mapper, event)
+                            }
+                            val queue = LinkedBlockingQueue<SessionEvent>()
+                            val unsubscribe = hub.subscribe(sessionId) { queue.offer(it) }
+                            try {
+                                while (coroutineContext.isActive) {
+                                    val event = queue.poll(15, TimeUnit.SECONDS)
+                                    if (event != null) {
+                                        writeSseEvent(mapper, event)
+                                        if (event.type == SessionEventType.STATUS_CHANGED &&
+                                            isTerminalStatusMessage(event.message)
+                                        ) {
+                                            break
+                                        }
+                                    } else {
+                                        write(": keepalive\n\n")
+                                        flush()
+                                    }
+                                }
+                            } finally {
+                                unsubscribe()
+                            }
+                        }
+                    }
                 }
             }
 
@@ -156,4 +209,18 @@ private suspend fun ApplicationCall.respondJson(
     status: HttpStatusCode = HttpStatusCode.OK,
 ) {
     respondText(mapper.writeValueAsString(payload), ContentType.Application.Json, status)
+}
+
+private fun Writer.writeSseEvent(mapper: ObjectMapper, event: SessionEvent) {
+    write("event: ${event.type.name.lowercase()}\n")
+    write("id: ${event.seq}\n")
+    write("data: ${mapper.writeValueAsString(event)}\n\n")
+    flush()
+}
+
+private fun isTerminalStatusMessage(message: String?): Boolean {
+    if (message.isNullOrBlank()) return false
+    return message.contains("status=COMPLETED") ||
+        message.contains("status=FAILED") ||
+        message.contains("status=CANCELLED")
 }
