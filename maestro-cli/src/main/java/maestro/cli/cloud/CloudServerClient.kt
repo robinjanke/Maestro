@@ -1,7 +1,6 @@
 package maestro.cli.cloud
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -25,7 +24,7 @@ class CloudServerClient(
     private val sessionToken: String? = null,
 ) {
     private val client = HttpClient(CIO)
-    private val mapper: ObjectMapper = jacksonObjectMapper()
+    private val mapper: ObjectMapper = cloudObjectMapper()
 
     suspend fun health(): CloudHealth {
         val response = client.get("$baseUrl/v1/health")
