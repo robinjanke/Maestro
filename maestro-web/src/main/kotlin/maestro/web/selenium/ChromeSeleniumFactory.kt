@@ -29,6 +29,9 @@ class ChromeSeleniumFactory(
                 addArguments("--remote-allow-origins=*")
                 addArguments("--disable-search-engine-choice-screen")
                 addArguments("--lang=en")
+                // Expose Flutter web semantics (flt-semantics) to the DOM a11y tree
+                // so Maestro can match labels like "Organisationen" in headless Chrome.
+                addArguments("--force-renderer-accessibility")
 
                 // Disable password management
                 addArguments("--password-store=basic")
