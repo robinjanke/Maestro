@@ -164,17 +164,23 @@ class SessionRegistry(
         val results = record.flowResults.filter { it.flowPath != request.flowPath } + result
         val expectedFlowCount = record.flowPlan.orderedFlows.size
         val completedFlows = results.map { it.flowPath }.toSet()
-        val terminal = completedFlows.size >= expectedFlowCount
+        val allDone = completedFlows.size >= expectedFlowCount
         val anyFailed = results.any { !it.success }
+        // Fail-fast: first failure ends the session and cancels the worker pipeline.
         val newStatus = when {
-            !terminal && record.status == SessionStatus.READY -> SessionStatus.RUNNING
-            !terminal -> record.status
             anyFailed -> SessionStatus.FAILED
-            else -> SessionStatus.COMPLETED
+            allDone -> SessionStatus.COMPLETED
+            record.status == SessionStatus.READY -> SessionStatus.RUNNING
+            else -> record.status
         }
         val updated = record.copy(
             flowResults = results,
             status = newStatus,
+            error = if (anyFailed && !request.success) {
+                "fail-fast: ${request.flowPath} failed"
+            } else {
+                record.error
+            },
             updatedAt = Instant.now(),
         )
         store.update(updated)
@@ -194,7 +200,7 @@ class SessionRegistry(
             )
         }
 
-        if (terminal) {
+        if (allDone || anyFailed) {
             cancelDevicesPipeline(updated)
         }
 

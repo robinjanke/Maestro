@@ -62,13 +62,13 @@ object WorkerFlowRunner {
             for (assignment in attachResponse.assignedFlows) {
                 val flowFile = flowsRoot.resolve(assignment.flowPath).toFile()
                 if (!flowFile.exists()) {
-                    System.err.println("Missing flow: $flowFile")
+                    System.err.println("❌ Missing flow: $flowFile")
                     postFailure(client, sessionId, assignment.flowPath, assignment.deviceName, "flow file missing")
                     exitCode = 1
-                    continue
+                    break
                 }
                 System.out.println(
-                    "Running flow ${assignment.flowPath} on device ${assignment.deviceName} (${assignment.platform})",
+                    "🚀 Running flow ${assignment.flowPath} on device ${assignment.deviceName} (${assignment.platform})",
                 )
                 runBlocking {
                     client.postEvent(
@@ -104,7 +104,12 @@ object WorkerFlowRunner {
                         ),
                     )
                 }
-                if (!result.success) exitCode = 1
+                if (!result.success) {
+                    System.err.println("❌ Flow failed — fail-fast, aborting remaining flows")
+                    exitCode = 1
+                    break
+                }
+                System.out.println("✅ Flow passed: ${assignment.flowPath}")
             }
             return exitCode
         } finally {

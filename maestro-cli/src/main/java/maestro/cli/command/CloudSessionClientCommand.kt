@@ -71,7 +71,7 @@ class CloudSessionClientCommand : Callable<Int> {
         val catalog = Files.readString(catalogPath)
 
         val totalFlows = plan.orderedFlows.size
-        println("Cloud flow plan: ${totalFlows} flow(s) on device(s): ${enabledDevices.joinToString()}")
+        println("${Ansi.CYAN}📋 Cloud flow plan: ${totalFlows} flow(s) on device(s): ${enabledDevices.joinToString()}${Ansi.RESET}")
         plan.orderedFlows.forEachIndexed { index, flow ->
             println("  ${index + 1}. ${flow} (${plan.flowDeviceByPath[flow]})")
         }
@@ -108,13 +108,14 @@ class CloudSessionClientCommand : Callable<Int> {
                     ),
                 )
                 sessionId = created.sessionId
-                println("Cloud session ${created.sessionId} created (status=${created.status})")
+                println("${Ansi.CYAN}☁️  Cloud session ${created.sessionId} created (status=${created.status})${Ansi.RESET}")
 
                 val lastEventAt = AtomicLong(System.currentTimeMillis())
                 val lastEventSeq = AtomicLong(0)
                 var lastStatus = created.status
                 var lastCompletedCount = 0
                 var workerPipelineLogged = false
+                var failFastTriggered = false
 
                 coroutineScope {
                     val streamJob = async {
@@ -124,11 +125,24 @@ class CloudSessionClientCommand : Callable<Int> {
                                     lastEventAt.set(System.currentTimeMillis())
                                     lastEventSeq.set(event.seq)
                                     printEvent(event)
+                                    if (
+                                        event.type == SessionEventType.FLOW_FINISHED &&
+                                        event.success == false &&
+                                        !failFastTriggered
+                                    ) {
+                                        failFastTriggered = true
+                                        println(
+                                            "${Ansi.YELLOW}⚠️  Fail-fast: cancelling session after first failure${Ansi.RESET}",
+                                        )
+                                        runCatching {
+                                            runBlocking { client.cancelSession(created.sessionId) }
+                                        }
+                                    }
                                 }
                             }
                             if (result.isSuccess) break
                             System.err.println(
-                                "SSE stream ended: ${result.exceptionOrNull()?.message} (reconnecting)",
+                                "${Ansi.YELLOW}⚠️  SSE stream ended: ${result.exceptionOrNull()?.message} (reconnecting)${Ansi.RESET}",
                             )
                             delay(2000)
                         }
@@ -140,7 +154,7 @@ class CloudSessionClientCommand : Callable<Int> {
                         val idleSeconds = (System.currentTimeMillis() - lastEventAt.get()) / 1000
                         if (idleSeconds >= stallSeconds) {
                             System.err.println(
-                                "No cloud session activity for ${idleSeconds}s (limit ${stallSeconds}s) — aborting",
+                                "${Ansi.YELLOW}⚠️  No cloud session activity for ${idleSeconds}s (limit ${stallSeconds}s) — aborting${Ansi.RESET}",
                             )
                             client.cancelSession(created.sessionId)
                             streamJob.cancel()
@@ -152,8 +166,8 @@ class CloudSessionClientCommand : Callable<Int> {
                             workerPipelineLogged = true
                             val host = System.getenv("CI_SERVER_HOST") ?: "gitlab.doppelt-digital.com"
                             println(
-                                "Maestro devices worker pipeline: " +
-                                    "https://${host}/internal/maestro-devices/-/pipelines/${view.gitlabPipelineId}",
+                                "${Ansi.CYAN}🔗 Maestro devices worker pipeline: " +
+                                    "https://${host}/internal/maestro-devices/-/pipelines/${view.gitlabPipelineId}${Ansi.RESET}",
                             )
                         }
                         if (view.status != lastStatus) {
@@ -169,11 +183,18 @@ class CloudSessionClientCommand : Callable<Int> {
                             SessionStatus.COMPLETED -> {
                                 writeJunit(view.junitXml)
                                 exitCode = if (view.flowResults.all { it.success }) 0 else 1
+                                if (exitCode == 0) {
+                                    println("${Ansi.GREEN}✅ Cloud session completed successfully${Ansi.RESET}")
+                                } else {
+                                    println("${Ansi.RED}❌ Cloud session completed with failures${Ansi.RESET}")
+                                }
                                 break
                             }
                             SessionStatus.FAILED, SessionStatus.CANCELLED -> {
                                 writeJunit(view.junitXml)
-                                view.error?.let { System.err.println(it) }
+                                view.error?.let {
+                                    System.err.println("${Ansi.RED}❌ $it${Ansi.RESET}")
+                                }
                                 exitCode = 1
                                 break
                             }
@@ -183,7 +204,9 @@ class CloudSessionClientCommand : Callable<Int> {
 
                     streamJob.cancel()
                     if (System.currentTimeMillis() >= deadline) {
-                        System.err.println("Timed out waiting for session after ${timeoutSeconds}s (last=$lastStatus)")
+                        System.err.println(
+                            "${Ansi.YELLOW}⚠️  Timed out waiting for session after ${timeoutSeconds}s (last=$lastStatus)${Ansi.RESET}",
+                        )
                     }
                     exitCode
                 }
@@ -199,16 +222,27 @@ class CloudSessionClientCommand : Callable<Int> {
     private fun printEvent(event: SessionEvent) {
         when (event.type) {
             SessionEventType.FLOW_STARTED -> {
-                println(">>> START ${event.flowPath} on ${event.deviceName}")
+                println("${Ansi.CYAN}🚀 START ${event.flowPath} on ${event.deviceName}${Ansi.RESET}")
             }
             SessionEventType.LOG_LINE -> {
-                println("[${event.flowPath}] ${event.message}")
+                val message = event.message.orEmpty()
+                val colored = when {
+                    message.contains("FAILED", ignoreCase = true) -> "${Ansi.RED}$message${Ansi.RESET}"
+                    message.contains("COMPLETED", ignoreCase = true) -> "${Ansi.GREEN}$message${Ansi.RESET}"
+                    else -> message
+                }
+                println("[${event.flowPath}] $colored")
             }
             SessionEventType.FLOW_FINISHED -> {
-                val mark = if (event.success == true) "ok" else "FAILED"
-                println("<<< DONE ${event.flowPath} [$mark]")
+                if (event.success == true) {
+                    println("${Ansi.GREEN}✅ DONE ${event.flowPath}${Ansi.RESET}")
+                } else {
+                    println("${Ansi.RED}❌ DONE ${event.flowPath} [FAILED]${Ansi.RESET}")
+                }
             }
-            SessionEventType.STATUS_CHANGED -> Unit
+            SessionEventType.STATUS_CHANGED -> {
+                event.message?.let { println("${Ansi.CYAN}ℹ️  $it${Ansi.RESET}") }
+            }
         }
     }
 
@@ -216,5 +250,17 @@ class CloudSessionClientCommand : Callable<Int> {
         if (xml.isNullOrBlank()) return
         junitReport.parent?.let { Files.createDirectories(it) }
         Files.writeString(junitReport, xml)
+    }
+
+    private object Ansi {
+        private val enabled: Boolean =
+            System.getenv("NO_COLOR").isNullOrBlank() &&
+                (System.getenv("CI") != null || System.console() != null || System.getenv("TERM") != null)
+
+        val RESET: String = if (enabled) "\u001B[0m" else ""
+        val RED: String = if (enabled) "\u001B[31m" else ""
+        val GREEN: String = if (enabled) "\u001B[32m" else ""
+        val YELLOW: String = if (enabled) "\u001B[33m" else ""
+        val CYAN: String = if (enabled) "\u001B[36m" else ""
     }
 }
