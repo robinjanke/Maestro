@@ -225,13 +225,7 @@ class CloudSessionClientCommand : Callable<Int> {
                 println("${Ansi.CYAN}🚀 START ${event.flowPath} on ${event.deviceName}${Ansi.RESET}")
             }
             SessionEventType.LOG_LINE -> {
-                val message = event.message.orEmpty()
-                val colored = when {
-                    message.contains("FAILED", ignoreCase = true) -> "${Ansi.RED}$message${Ansi.RESET}"
-                    message.contains("COMPLETED", ignoreCase = true) -> "${Ansi.GREEN}$message${Ansi.RESET}"
-                    else -> message
-                }
-                println("[${event.flowPath}] $colored")
+                println(colorizeLogLine(event.message.orEmpty()))
             }
             SessionEventType.FLOW_FINISHED -> {
                 if (event.success == true) {
@@ -244,6 +238,21 @@ class CloudSessionClientCommand : Callable<Int> {
                 event.message?.let { println("${Ansi.CYAN}ℹ️  $it${Ansi.RESET}") }
             }
         }
+    }
+
+    /** Color status words; map legacy COMPLETED/WARNED for mixed worker versions. */
+    private fun colorizeLogLine(message: String): String {
+        val normalized = message
+            .replace(Regex("""\bCOMPLETED\b""", RegexOption.IGNORE_CASE), "PASSED")
+            .replace(Regex("""\bWARNED\b""", RegexOption.IGNORE_CASE), "WARN")
+
+        if (Regex("""\bFAILED\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)) {
+            return "${Ansi.RED}$normalized${Ansi.RESET}"
+        }
+
+        return normalized
+            .replace(Regex("""\bPASSED\b"""), "${Ansi.GREEN}PASSED${Ansi.RESET}")
+            .replace(Regex("""\bWARN\b"""), "${Ansi.ORANGE}WARN${Ansi.RESET}")
     }
 
     private fun writeJunit(xml: String?) {
@@ -261,6 +270,7 @@ class CloudSessionClientCommand : Callable<Int> {
         val RED: String = if (enabled) "\u001B[31m" else ""
         val GREEN: String = if (enabled) "\u001B[32m" else ""
         val YELLOW: String = if (enabled) "\u001B[33m" else ""
+        val ORANGE: String = if (enabled) "\u001B[38;5;208m" else ""
         val CYAN: String = if (enabled) "\u001B[36m" else ""
     }
 }

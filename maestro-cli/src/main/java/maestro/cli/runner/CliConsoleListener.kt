@@ -21,10 +21,10 @@ class CliConsoleListener(private val shardPrefix: String = "") : OrchestraListen
         finishedAt: Long,
     ) {
         val word = when (outcome) {
-            is CommandOutcome.Completed -> "COMPLETED"
+            is CommandOutcome.Completed -> "PASSED"
             is CommandOutcome.Failed -> "FAILED"
             is CommandOutcome.Skipped -> "SKIPPED"
-            is CommandOutcome.Warned -> "WARNED"
+            is CommandOutcome.Warned -> "WARN"
         }
         logger.info("${shardPrefix}${cmd.description()} $word")
     }
