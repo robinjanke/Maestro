@@ -1,5 +1,6 @@
 package maestro.web.selenium
 
+import org.openqa.selenium.Dimension
 import org.openqa.selenium.WebDriver
 import org.openqa.selenium.chrome.ChromeDriver
 import org.openqa.selenium.chrome.ChromeDriverService
@@ -23,7 +24,15 @@ class ChromeSeleniumFactory(
             .withLogLevel(ChromiumDriverLogLevel.OFF)
             .build()
 
-        return ChromeDriver(
+        // Customer-frontend shell uses layoutWide at width >= 1180.
+        val resolvedSize = screenSize
+            ?: System.getenv("MAESTRO_CHROME_WINDOW_SIZE")?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: "1440x900"
+        val sizeParts = resolvedSize.lowercase().replace('x', ',').split(',')
+        val width = sizeParts.getOrNull(0)?.toIntOrNull() ?: 1440
+        val height = sizeParts.getOrNull(1)?.toIntOrNull() ?: 900
+
+        val driver = ChromeDriver(
             driverService,
             ChromeOptions().apply {
                 addArguments("--remote-allow-origins=*")
@@ -45,20 +54,21 @@ class ChromeSeleniumFactory(
                 )
                 setExperimentalOption("prefs", chromePrefs)
 
+                // Always set window size (not only headless) so Flutter layoutWide is active.
+                addArguments("--window-size=$width,$height")
+
                 if (isHeadless) {
                     addArguments("--headless=new")
-
-                    // Customer-frontend shell uses layoutWide at width >= 1180.
-                    // Default 1024x768 hid navbar actions like "Tool Download".
-                    val resolvedSize = screenSize
-                        ?: System.getenv("MAESTRO_CHROME_WINDOW_SIZE")?.trim().takeUnless { it.isNullOrEmpty() }
-                        ?: "1440x900"
-                    addArguments("--window-size=" + resolvedSize.replace('x', ','))
-
                     setExperimentalOption("detach", true)
                 }
             }
         )
+        try {
+            driver.manage().window().size = Dimension(width, height)
+        } catch (_: Exception) {
+            // Some headless builds reject explicit resize; --window-size already applied.
+        }
+        return driver
     }
 
 }
