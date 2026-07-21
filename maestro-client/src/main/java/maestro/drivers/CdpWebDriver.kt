@@ -459,6 +459,8 @@ class CdpWebDriver(
         return when (code) {
             KeyCode.ENTER -> Keys.ENTER
             KeyCode.BACKSPACE -> Keys.BACK_SPACE
+            KeyCode.TAB -> Keys.TAB
+            KeyCode.ESCAPE -> Keys.ESCAPE
             else -> error("Keycode $code is not supported on web")
         }
     }
