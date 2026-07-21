@@ -110,14 +110,16 @@ class CdpWebDriver(
             ChromeOptions().apply {
                 addArguments("--remote-allow-origins=*")
                 addArguments("--disable-search-engine-choice-screen")
-                addArguments("--lang=en")
+                val chromeLang = System.getenv("MAESTRO_CHROME_LANG")?.trim().takeUnless { it.isNullOrEmpty() } ?: "de-DE"
+                addArguments("--lang=$chromeLang")
 
                 // Disable password management
                 addArguments("--password-store=basic")
                 val chromePrefs = hashMapOf<String, Any>(
                     "credentials_enable_service" to false,
                     "profile.password_manager_enabled" to false,
-                    "profile.password_manager_leak_detection" to false   // important one
+                    "profile.password_manager_leak_detection" to false,   // important one
+                    "intl.accept_languages" to chromeLang,
                 )
                 setExperimentalOption("prefs", chromePrefs)
 
@@ -125,12 +127,10 @@ class CdpWebDriver(
 
                 if (isHeadless) {
                     addArguments("--headless=new")
-                    if(screenSize != null){
-                        addArguments("--window-size=" + screenSize.replace('x',','))
-                    }
-                    else{
-                        addArguments("--window-size=1024,768")
-                    }
+                    val resolvedSize = screenSize
+                        ?: System.getenv("MAESTRO_CHROME_WINDOW_SIZE")?.trim().takeUnless { it.isNullOrEmpty() }
+                        ?: "1440x900"
+                    addArguments("--window-size=" + resolvedSize.replace('x', ','))
                 }
             }
         )
