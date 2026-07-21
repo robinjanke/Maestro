@@ -28,7 +28,9 @@ class ChromeSeleniumFactory(
             ChromeOptions().apply {
                 addArguments("--remote-allow-origins=*")
                 addArguments("--disable-search-engine-choice-screen")
-                addArguments("--lang=en")
+                // E2E flows assert German UI copy (e.g. "Organisationen"). Allow override via MAESTRO_CHROME_LANG.
+                val chromeLang = System.getenv("MAESTRO_CHROME_LANG")?.trim().takeUnless { it.isNullOrEmpty() } ?: "de-DE"
+                addArguments("--lang=$chromeLang")
                 // Expose Flutter web semantics (flt-semantics) to the DOM a11y tree
                 // so Maestro can match labels like "Organisationen" in headless Chrome.
                 addArguments("--force-renderer-accessibility")
@@ -38,7 +40,8 @@ class ChromeSeleniumFactory(
                 val chromePrefs = hashMapOf<String, Any>(
                     "credentials_enable_service" to false,
                     "profile.password_manager_enabled" to false,
-                    "profile.password_manager_leak_detection" to false   // important one
+                    "profile.password_manager_leak_detection" to false,   // important one
+                    "intl.accept_languages" to chromeLang,
                 )
                 setExperimentalOption("prefs", chromePrefs)
 
