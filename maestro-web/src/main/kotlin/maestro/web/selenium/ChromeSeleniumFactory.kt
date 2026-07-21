@@ -48,12 +48,12 @@ class ChromeSeleniumFactory(
                 if (isHeadless) {
                     addArguments("--headless=new")
 
-                    if(screenSize != null){
-                        addArguments("--window-size=" + screenSize.replace('x',','))
-                    }
-                    else{
-                        addArguments("--window-size=1024,768")
-                    }
+                    // Customer-frontend shell uses layoutWide at width >= 1180.
+                    // Default 1024x768 hid navbar actions like "Tool Download".
+                    val resolvedSize = screenSize
+                        ?: System.getenv("MAESTRO_CHROME_WINDOW_SIZE")?.trim().takeUnless { it.isNullOrEmpty() }
+                        ?: "1440x900"
+                    addArguments("--window-size=" + resolvedSize.replace('x', ','))
 
                     setExperimentalOption("detach", true)
                 }
