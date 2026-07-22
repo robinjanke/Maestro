@@ -67,6 +67,16 @@ class CloudSessionClientCommand : Callable<Int> {
         val workerGroups = enabledDevices.mapNotNull { deviceName ->
             catalogData.devices[deviceName]?.workerGroup
         }.distinct()
+        val useLocalMacosWorker = System.getenv("E2E_LOCAL_MACOS_WORKER")
+            ?.equals("true", ignoreCase = true) == true
+        val macosDevices = enabledDevices.filter { it.startsWith("macos") }
+        // Avoid triggering remote macOS GitLab workers when the developer Mac runs
+        // cloud-worker locally (needed when shell hosts lack Accessibility / are locked).
+        val triggerWorkerGroups = if (useLocalMacosWorker && macosDevices.isNotEmpty()) {
+            workerGroups.filterNot { it == "macos" }.ifEmpty { listOf("__local__") }
+        } else {
+            workerGroups
+        }
 
         val catalog = Files.readString(catalogPath)
 
@@ -90,6 +100,7 @@ class CloudSessionClientCommand : Callable<Int> {
 
         val client = CloudServerClient(serverUrl.trimEnd('/'), apiKey = apiKey)
         var sessionId: String? = null
+        var localMacosWorker: Process? = null
         try {
             return runBlocking {
                 val created = client.createSession(
@@ -104,11 +115,40 @@ class CloudSessionClientCommand : Callable<Int> {
                             jobName = jobName,
                         ),
                         clientProjectPath = System.getenv("CI_PROJECT_PATH"),
-                        workerGroups = workerGroups,
+                        workerGroups = triggerWorkerGroups,
                     ),
                 )
                 sessionId = created.sessionId
                 println("${Ansi.CYAN}☁️  Cloud session ${created.sessionId} created (status=${created.status})${Ansi.RESET}")
+
+                if (useLocalMacosWorker && macosDevices.isNotEmpty()) {
+                    val maestroBin = System.getenv("MAESTRO_BINARY")?.takeIf { it.isNotBlank() } ?: "maestro"
+                    println(
+                        "${Ansi.CYAN}🖥️  Starting local macOS cloud-worker for ${macosDevices.joinToString()}${Ansi.RESET}",
+                    )
+                    val pb = ProcessBuilder(
+                        maestroBin,
+                        "cloud-worker",
+                        "run-flows",
+                        "--url",
+                        serverUrl.trimEnd('/'),
+                        "--session",
+                        created.sessionId,
+                        "--token",
+                        created.sessionToken,
+                        "--group",
+                        "macos",
+                        "--flows-root",
+                        flowsRoot.toAbsolutePath().toString(),
+                        "--catalog",
+                        catalogPath.toAbsolutePath().toString(),
+                        "--devices",
+                        macosDevices.joinToString(","),
+                    )
+                    pb.redirectErrorStream(true)
+                    pb.redirectOutput(ProcessBuilder.Redirect.INHERIT)
+                    localMacosWorker = pb.start()
+                }
 
                 val lastEventAt = AtomicLong(System.currentTimeMillis())
                 val lastEventSeq = AtomicLong(0)
@@ -212,6 +252,13 @@ class CloudSessionClientCommand : Callable<Int> {
                 }
             }
         } finally {
+            localMacosWorker?.let { proc ->
+                if (proc.isAlive) {
+                    proc.destroy()
+                    proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+                    if (proc.isAlive) proc.destroyForcibly()
+                }
+            }
             sessionId?.let { id ->
                 runCatching { runBlocking { client.cancelSession(id) } }
             }

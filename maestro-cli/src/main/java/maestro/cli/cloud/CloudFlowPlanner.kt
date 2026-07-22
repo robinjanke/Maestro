@@ -56,9 +56,13 @@ object CloudFlowPlanner {
                 "windows-1" -> "platform-app/desktop-windows/"
                 else -> null
             } ?: continue
-            for (flow in plannedForEnabled) {
-                if (flow.startsWith(prefix)) add(flow)
-            }
+            // Smoke + sign-in before flows that require an authenticated session.
+            val desktopFlows = plannedForEnabled.filter { it.startsWith(prefix) }
+            desktopFlows.filter { it.contains("/smoke/") }.forEach(::add)
+            desktopFlows.filter { it.contains("/lifecycle/02_sign_in") }.forEach(::add)
+            desktopFlows.filter {
+                !it.contains("/smoke/") && !it.contains("/lifecycle/02_sign_in")
+            }.forEach(::add)
         }
 
         for (flow in plannedForEnabled) {
