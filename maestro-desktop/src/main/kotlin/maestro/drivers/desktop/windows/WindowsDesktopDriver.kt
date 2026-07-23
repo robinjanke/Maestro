@@ -1,63 +1,138 @@
 package maestro.drivers.desktop.windows
 
-import maestro.Driver
-import maestro.MaestroException
+import maestro.TreeNode
+import maestro.drivers.desktop.DesktopHierarchy
+import maestro.drivers.desktop.RobotDesktopDriver
+import java.awt.event.KeyEvent
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
- * Windows Flutter Desktop driver (UI Automation). Scaffold — implement UIA bindings next.
+ * Windows Flutter Desktop driver using UI Automation (via PowerShell helper) + AWT Robot.
+ *
+ * Flutter Semantics(identifier) maps to UIA AutomationId → Maestro resource-id.
  */
-class WindowsDesktopDriver : Driver by UnsupportedDesktopDriver(
-    platformName = "Windows",
-    hint = "Windows desktop driver scaffold is present; UIA implementation is in progress.",
-)
+class WindowsDesktopDriver : RobotDesktopDriver("Windows") {
+    private var processHandle: Process? = null
 
-private class UnsupportedDesktopDriver(
-    private val platformName: String,
-    private val hint: String,
-) : Driver {
-    private fun fail(): Nothing = throw MaestroException.InvalidCommand(
-        "$hint Run with --platform desktop on macOS for the current fully supported driver.",
-    )
+    override fun pasteModifierKey(): Int = KeyEvent.VK_CONTROL
 
-    override fun name(): String = "Flutter Desktop ($platformName)"
-    override fun open() = fail()
-    override fun close() = Unit
-    override fun deviceInfo() = fail()
-    override fun launchApp(appId: String, launchArguments: Map<String, Any>) = fail()
-    override fun stopApp(appId: String) = Unit
-    override fun killApp(appId: String) = Unit
-    override fun clearAppState(appId: String) = Unit
-    override fun clearKeychain() = Unit
-    override fun tap(point: maestro.Point) = fail()
-    override fun longPress(point: maestro.Point) = fail()
-    override fun pressKey(code: maestro.KeyCode) = fail()
-    override fun contentDescriptor(excludeKeyboardElements: Boolean) = fail()
-    override fun scrollVertical() = fail()
-    override fun isKeyboardVisible(): Boolean = false
-    override fun swipe(start: maestro.Point, end: maestro.Point, durationMs: Long) = fail()
-    override fun swipe(swipeDirection: maestro.SwipeDirection, durationMs: Long) = fail()
-    override fun swipe(elementPoint: maestro.Point, direction: maestro.SwipeDirection, durationMs: Long) = fail()
-    override fun backPress() = Unit
-    override fun inputText(text: String) = fail()
-    override fun openLink(link: String, appId: String?, autoVerify: Boolean, browser: Boolean) = fail()
-    override fun hideKeyboard() = Unit
-    override fun takeScreenshot(out: okio.Sink, compressed: Boolean) = fail()
-    override fun startScreenRecording(out: okio.Sink): maestro.ScreenRecording = fail()
-    override fun setLocation(latitude: Double, longitude: Double) = Unit
-    override fun setOrientation(orientation: maestro.device.DeviceOrientation) = Unit
-    override fun eraseText(charactersToErase: Int) = fail()
-    override fun setProxy(host: String, port: Int) = Unit
-    override fun resetProxy() = Unit
-    override fun isShutdown(): Boolean = true
-    override fun waitUntilScreenIsStatic(timeoutMs: Long): Boolean = false
-    override fun waitForAppToSettle(
-        initialHierarchy: maestro.ViewHierarchy?,
-        appId: String?,
-        timeoutMs: Int?,
-    ): maestro.ViewHierarchy? = null
-    override fun capabilities(): List<maestro.Capability> = emptyList()
-    override fun setPermissions(appId: String, permissions: Map<String, String>) = Unit
-    override fun addMedia(mediaFiles: List<java.io.File>) = Unit
-    override fun isAirplaneModeEnabled(): Boolean = false
-    override fun setAirplaneMode(enabled: Boolean) = Unit
+    override fun launchApp(appId: String, launchArguments: Map<String, Any>) {
+        ensureOpen()
+        stopApp(appId)
+
+        val command = resolveLaunchCommand(appId)
+        logger.info("Launching Windows desktop app: {}", command.joinToString(" "))
+        processHandle = ProcessBuilder(command)
+            .directory(File(appId).takeIf { it.isFile }?.parentFile)
+            .inheritIO()
+            .start()
+
+        Thread.sleep(3000)
+        val pid = resolvePid(appId) ?: processHandle?.pid()?.toInt()
+            ?: error("Could not find running process for app '$appId'")
+        appPid = pid
+        this.appId = appId
+        waitUntilScreenIsStatic(5000)
+    }
+
+    override fun stopApp(appId: String) {
+        val pid = resolvePid(appId) ?: appPid
+        if (pid != null) {
+            runCatching {
+                ProcessBuilder("taskkill", "/PID", pid.toString(), "/T", "/F")
+                    .redirectErrorStream(true)
+                    .start()
+                    .waitFor(10, TimeUnit.SECONDS)
+            }
+        }
+        processHandle?.destroyForcibly()
+        processHandle = null
+        if (this.appId == appId) {
+            this.appPid = null
+            this.appId = null
+        }
+    }
+
+    override fun killApp(appId: String) = stopApp(appId)
+
+    override fun contentDescriptor(excludeKeyboardElements: Boolean): TreeNode {
+        val pid = appPid ?: error("No desktop application is running. Call launchApp first.")
+        val script = extractHelperScript("desktop-helpers/windows-dump-tree.ps1", "windows-dump-tree.ps1")
+        val process = ProcessBuilder(
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            script.absolutePath,
+            "-ProcessId",
+            pid.toString(),
+        ).redirectErrorStream(true).start()
+        val finished = process.waitFor(45, TimeUnit.SECONDS)
+        val output = process.inputStream.bufferedReader().readText()
+        if (!finished) {
+            process.destroyForcibly()
+            error("Timed out dumping UI Automation tree for pid=$pid")
+        }
+        if (process.exitValue() != 0) {
+            error("UI Automation dump failed (exit=${process.exitValue()}): ${output.take(800)}")
+        }
+        // PowerShell may emit BOM / warnings before JSON — take last JSON object.
+        val json = output.lineSequence().map { it.trim() }.lastOrNull { it.startsWith("{") }
+            ?: output.trim().substringAfter("{").let { "{$it" }
+        return DesktopHierarchy.parse(json).root
+    }
+
+    override fun openLink(link: String, appId: String?, autoVerify: Boolean, browser: Boolean) {
+        ProcessBuilder("cmd", "/c", "start", "", link)
+            .start()
+            .waitFor(10, TimeUnit.SECONDS)
+    }
+
+    private fun resolveLaunchCommand(appId: String): List<String> {
+        val file = File(appId)
+        return when {
+            file.isFile && appId.endsWith(".exe", ignoreCase = true) -> listOf(file.absolutePath)
+            file.isFile -> listOf(file.absolutePath)
+            appId.contains("\\") || appId.contains("/") -> listOf(appId)
+            else -> listOf("cmd", "/c", "start", "", appId)
+        }
+    }
+
+    private fun resolvePid(appId: String): Int? {
+        if (appPid != null && isProcessRunning(appPid!!)) {
+            return appPid
+        }
+        val handlePid = processHandle?.pid()?.toInt()
+        if (handlePid != null && isProcessRunning(handlePid)) {
+            return handlePid
+        }
+
+        val exeName = File(appId).name.takeIf { it.endsWith(".exe", ignoreCase = true) }
+            ?: return handlePid
+        return runCatching {
+            val process = ProcessBuilder(
+                "powershell.exe",
+                "-NoProfile",
+                "-Command",
+                "(Get-Process -Name '${exeName.removeSuffix(".exe").removeSuffix(".EXE")}' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id)",
+            ).redirectErrorStream(true).start()
+            process.waitFor(10, TimeUnit.SECONDS)
+            process.inputStream.bufferedReader().readText().trim().toIntOrNull()
+        }.getOrNull() ?: handlePid
+    }
+
+    private fun isProcessRunning(pid: Int): Boolean {
+        return runCatching {
+            val process = ProcessBuilder(
+                "powershell.exe",
+                "-NoProfile",
+                "-Command",
+                "if (Get-Process -Id $pid -ErrorAction SilentlyContinue) { '1' } else { '0' }",
+            ).redirectErrorStream(true).start()
+            process.waitFor(5, TimeUnit.SECONDS)
+            process.inputStream.bufferedReader().readText().trim() == "1"
+        }.getOrDefault(false)
+    }
 }
