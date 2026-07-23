@@ -74,6 +74,9 @@ class MacOSDesktopDriver : Driver {
         ensureOpen()
         stopApp(appId)
 
+        // Use `open` so LaunchServices wires the .app bundle correctly.
+        // Dynamic backend URL is injected via Application Support/backend-url.override
+        // (E2E runner / cloud worker write that file); `open` does not forward env vars.
         when {
             appId.endsWith(".app") -> {
                 ProcessBuilder("open", appId).inheritIO().start().waitFor(30, TimeUnit.SECONDS)
@@ -86,7 +89,7 @@ class MacOSDesktopDriver : Driver {
             }
         }
 
-        Thread.sleep(1500)
+        Thread.sleep(2500)
         val pid = resolvePid(appId) ?: error("Could not find running process for app '$appId'")
         appPid = pid
         this.appId = appId

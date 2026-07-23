@@ -7,14 +7,16 @@ This fork extends [Maestro](https://github.com/mobile-dev-inc/Maestro) with a **
 | OS | Driver | Status |
 |----|--------|--------|
 | macOS | `MacOSDesktopDriver` (AXUIElement / Accessibility API) | Implemented |
-| Windows | `WindowsDesktopDriver` (UI Automation) | Scaffold |
-| Linux | `LinuxDesktopDriver` (AT-SPI) | Scaffold |
+| Windows | `WindowsDesktopDriver` (UI Automation via PowerShell + AWT Robot) | Implemented |
+| Linux | `LinuxDesktopDriver` (AT-SPI via Python + AWT Robot) | Implemented |
 
 ## Requirements
 
 - Java 17+
 - macOS: **Accessibility permission** for the terminal/Java process  
   (System Settings → Privacy & Security → Accessibility)
+- Windows: PowerShell + .NET UIAutomation assemblies (built into Windows)
+- Linux: graphical session with AT-SPI (`python3` + `gi.repository.Atspi` / `gir1.2-atspi-2.0`), `DISPLAY` set
 - Flutter app: semantics enabled and stable identifiers
 
 ```dart
