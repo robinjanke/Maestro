@@ -21,6 +21,7 @@ import maestro.web.input.inputHtmlDate
 import maestro.web.input.isHtmlDateInput
 import maestro.web.record.JcodecVideoEncoder
 import maestro.web.record.WebScreenRecorder
+import maestro.web.selenium.ChromeSeleniumFactory
 import okio.Sink
 import okio.buffer
 import org.openqa.selenium.By
@@ -29,9 +30,6 @@ import org.openqa.selenium.Keys
 import org.openqa.selenium.WebDriver
 import org.openqa.selenium.WebElement
 import org.openqa.selenium.chrome.ChromeDriver
-import org.openqa.selenium.chrome.ChromeDriverService
-import org.openqa.selenium.chrome.ChromeOptions
-import org.openqa.selenium.chromium.ChromiumDriverLogLevel
 import org.openqa.selenium.devtools.HasDevTools
 import org.openqa.selenium.devtools.v147.emulation.Emulation
 import org.openqa.selenium.interactions.Actions
@@ -43,8 +41,6 @@ import java.io.File
 import java.net.URI
 import java.time.Duration
 import java.util.*
-import java.util.logging.Level
-import java.util.logging.Logger
 
 
 private const val SYNTHETIC_COORDINATE_SPACE_OFFSET = 100000
@@ -96,46 +92,11 @@ class CdpWebDriver(
     }
 
     private fun createSeleniumDriver(): WebDriver {
-        System.setProperty("webdriver.chrome.silentOutput", "true")
-        System.setProperty(ChromeDriverService.CHROME_DRIVER_SILENT_OUTPUT_PROPERTY, "true")
-        Logger.getLogger("org.openqa.selenium").level = Level.OFF
-        Logger.getLogger("org.openqa.selenium.devtools.CdpVersionFinder").level = Level.OFF
+        val driver = ChromeSeleniumFactory(isHeadless = isHeadless, screenSize = screenSize).create()
+        val chromeDriver = driver as? ChromeDriver
+            ?: error("ChromeSeleniumFactory must create a ChromeDriver")
 
-        val driverService = ChromeDriverService.Builder()
-            .withLogLevel(ChromiumDriverLogLevel.OFF)
-            .build()
-
-        val driver = ChromeDriver(
-            driverService,
-            ChromeOptions().apply {
-                addArguments("--remote-allow-origins=*")
-                addArguments("--disable-search-engine-choice-screen")
-                val chromeLang = System.getenv("MAESTRO_CHROME_LANG")?.trim().takeUnless { it.isNullOrEmpty() } ?: "de-DE"
-                addArguments("--lang=$chromeLang")
-
-                // Disable password management
-                addArguments("--password-store=basic")
-                val chromePrefs = hashMapOf<String, Any>(
-                    "credentials_enable_service" to false,
-                    "profile.password_manager_enabled" to false,
-                    "profile.password_manager_leak_detection" to false,   // important one
-                    "intl.accept_languages" to chromeLang,
-                )
-                setExperimentalOption("prefs", chromePrefs)
-
-                setExperimentalOption("detach", true)
-
-                if (isHeadless) {
-                    addArguments("--headless=new")
-                    val resolvedSize = screenSize
-                        ?: System.getenv("MAESTRO_CHROME_WINDOW_SIZE")?.trim().takeUnless { it.isNullOrEmpty() }
-                        ?: "1440x900"
-                    addArguments("--window-size=" + resolvedSize.replace('x', ','))
-                }
-            }
-        )
-
-        val options = driver.capabilities.getCapability("goog:chromeOptions") as Map<String, Any>
+        val options = chromeDriver.capabilities.getCapability("goog:chromeOptions") as Map<String, Any>
         val debuggerAddress = options["debuggerAddress"] as String
         val parts = debuggerAddress.split(":")
 

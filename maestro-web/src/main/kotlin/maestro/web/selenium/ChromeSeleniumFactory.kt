@@ -44,6 +44,22 @@ class ChromeSeleniumFactory(
                 // so Maestro can match labels like "Organisationen" in headless Chrome.
                 addArguments("--force-renderer-accessibility")
 
+                // Docker/CI: ChromeDriver often launches /opt/google/chrome/google-chrome
+                // and never sees a PATH wrapper. These flags must live on the driver.
+                addArguments("--no-sandbox")
+                addArguments("--disable-dev-shm-usage")
+                addArguments("--disable-gpu")
+                addArguments("--test-type")
+                addArguments("--allow-insecure-localhost")
+                addArguments("--ignore-certificate-errors")
+                addArguments("--disable-features=TranslateUI,HttpsFirstBalancedMode,HttpsFirstBalancedModeAutoEnable")
+                setAcceptInsecureCerts(true)
+
+                val chromeBin = System.getenv("CHROME_BIN")?.trim().takeUnless { it.isNullOrEmpty() }
+                if (chromeBin != null) {
+                    setBinary(chromeBin)
+                }
+
                 // Disable password management
                 addArguments("--password-store=basic")
                 val chromePrefs = hashMapOf<String, Any>(
@@ -53,13 +69,13 @@ class ChromeSeleniumFactory(
                     "intl.accept_languages" to chromeLang,
                 )
                 setExperimentalOption("prefs", chromePrefs)
+                setExperimentalOption("detach", true)
 
                 // Always set window size (not only headless) so Flutter layoutWide is active.
                 addArguments("--window-size=$width,$height")
 
                 if (isHeadless) {
                     addArguments("--headless=new")
-                    setExperimentalOption("detach", true)
                 }
             }
         )
