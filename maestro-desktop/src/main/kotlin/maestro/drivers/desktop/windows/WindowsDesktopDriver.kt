@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit
  */
 class WindowsDesktopDriver : RobotDesktopDriver("Windows") {
     private var processHandle: Process? = null
+    private var launchedExecutable: File? = null
 
     override fun pasteModifierKey(): Int = KeyEvent.VK_CONTROL
 
@@ -21,10 +22,12 @@ class WindowsDesktopDriver : RobotDesktopDriver("Windows") {
         ensureOpen()
         stopApp(appId)
 
-        val command = resolveLaunchCommand(appId)
+        val command = resolveLaunchCommand(appId, launchArguments)
+        val executable = File(command.first()).takeIf { it.isFile }
+        launchedExecutable = executable
         logger.info("Launching Windows desktop app: {}", command.joinToString(" "))
         processHandle = ProcessBuilder(command)
-            .directory(File(appId).takeIf { it.isFile }?.parentFile)
+            .directory(executable?.parentFile ?: File(appId).takeIf { it.isFile }?.parentFile)
             .inheritIO()
             .start()
 
@@ -90,7 +93,8 @@ class WindowsDesktopDriver : RobotDesktopDriver("Windows") {
             .waitFor(10, TimeUnit.SECONDS)
     }
 
-    private fun resolveLaunchCommand(appId: String): List<String> {
+    private fun resolveLaunchCommand(appId: String, launchArguments: Map<String, Any>): List<String> {
+        configuredExecutable(launchArguments)?.let { return listOf(it.absolutePath) }
         val file = File(appId)
         return when {
             file.isFile && appId.endsWith(".exe", ignoreCase = true) -> listOf(file.absolutePath)
@@ -98,6 +102,24 @@ class WindowsDesktopDriver : RobotDesktopDriver("Windows") {
             appId.contains("\\") || appId.contains("/") -> listOf(appId)
             else -> listOf("cmd", "/c", "start", "", appId)
         }
+    }
+
+    /**
+     * Flows keep the bundle id (`ai.mainpath.toolbox`). Windows has no bundle
+     * lookup, so CI passes the built exe via MAESTRO_DESKTOP_APP or
+     * launchArguments["executable"].
+     */
+    private fun configuredExecutable(launchArguments: Map<String, Any>): File? {
+        val fromArgs = launchArguments["executable"]?.toString()?.trim().orEmpty()
+        val raw = if (fromArgs.isNotEmpty()) {
+            fromArgs
+        } else {
+            System.getenv("MAESTRO_DESKTOP_APP")?.trim().orEmpty()
+        }
+        if (raw.isEmpty()) return null
+        val file = File(raw)
+        if (!file.isFile) error("Desktop executable does not exist: $raw")
+        return file
     }
 
     private fun resolvePid(appId: String): Int? {
@@ -109,7 +131,8 @@ class WindowsDesktopDriver : RobotDesktopDriver("Windows") {
             return handlePid
         }
 
-        val exeName = File(appId).name.takeIf { it.endsWith(".exe", ignoreCase = true) }
+        val exeName = launchedExecutable?.name
+            ?: File(appId).name.takeIf { it.endsWith(".exe", ignoreCase = true) }
             ?: return handlePid
         return runCatching {
             val process = ProcessBuilder(
