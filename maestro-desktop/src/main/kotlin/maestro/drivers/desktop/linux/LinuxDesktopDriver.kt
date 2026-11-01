@@ -2,6 +2,7 @@ package maestro.drivers.desktop.linux
 
 import maestro.TreeNode
 import maestro.drivers.desktop.DesktopHierarchy
+import maestro.drivers.desktop.DesktopAppLocator
 import maestro.drivers.desktop.RobotDesktopDriver
 import java.awt.event.KeyEvent
 import java.io.File
@@ -27,7 +28,8 @@ class LinuxDesktopDriver : RobotDesktopDriver("Linux") {
         ensureOpen()
         stopApp(appId)
 
-        val command = resolveLaunchCommand(appId)
+        val command = DesktopAppLocator.configured(launchArguments)?.let { listOf(it.absolutePath) }
+            ?: resolveLaunchCommand(appId)
         logger.info("Launching Linux desktop app: {}", command.joinToString(" "))
         val builder = ProcessBuilder(command)
             .redirectErrorStream(true)

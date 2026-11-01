@@ -72,14 +72,16 @@ class WindowsDesktopDriver : RobotDesktopDriver("Windows") {
             "-ProcessId",
             pid.toString(),
         ).redirectErrorStream(true).start()
-        val finished = process.waitFor(45, TimeUnit.SECONDS)
-        val output = process.inputStream.bufferedReader().readText()
-        if (!finished) {
-            process.destroyForcibly()
+        val result = try {
+            // Read stdout/merged stderr immediately, while the helper is alive.
+            // One 45s deadline covers process completion AND pipe EOF.
+            WindowsHelperProcess.capture(process, 45_000, 4 * 1024 * 1024)
+        } catch (_: java.util.concurrent.TimeoutException) {
             error("Timed out dumping UI Automation tree for pid=$pid")
         }
-        if (process.exitValue() != 0) {
-            error("UI Automation dump failed (exit=${process.exitValue()}): ${output.take(800)}")
+        val output = result.output
+        if (result.exitCode != 0) {
+            error("UI Automation dump failed (exit=${result.exitCode}): ${output.take(800)}")
         }
         // PowerShell may emit BOM / warnings before JSON — take last JSON object.
         val json = output.lineSequence().map { it.trim() }.lastOrNull { it.startsWith("{") }

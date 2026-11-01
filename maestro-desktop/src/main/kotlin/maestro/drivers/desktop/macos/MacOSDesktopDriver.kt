@@ -21,6 +21,7 @@ import java.awt.Rectangle
 import java.awt.Robot
 import java.awt.Toolkit
 import java.awt.event.KeyEvent
+import maestro.drivers.desktop.DesktopAppLocator
 import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.imageio.ImageIO
@@ -73,6 +74,23 @@ class MacOSDesktopDriver : Driver {
     override fun launchApp(appId: String, launchArguments: Map<String, Any>) {
         ensureOpen()
         stopApp(appId)
+
+        DesktopAppLocator.configured(launchArguments)?.let { app ->
+            ProcessBuilder("open", app.absolutePath)
+                .inheritIO()
+                .start()
+                .waitFor(30, TimeUnit.SECONDS)
+            Thread.sleep(2500)
+            val pid = resolvePid(app.absolutePath)
+                ?: resolvePid(appId)
+                ?: error("Could not find running process for app '${app.absolutePath}'")
+            appPid = pid
+            this.appId = appId
+            rootElement = MacAxLibrary.INSTANCE.AXUIElementCreateApplication(pid)
+                ?: error("Failed to create AXUIElement for pid $pid")
+            waitUntilScreenIsStatic(5000)
+            return
+        }
 
         // Use `open` so LaunchServices wires the .app bundle correctly.
         // Dynamic backend URL is injected via Application Support/backend-url.override
