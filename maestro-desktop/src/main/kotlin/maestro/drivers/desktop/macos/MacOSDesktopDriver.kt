@@ -395,13 +395,17 @@ class MacOSDesktopDriver : Driver {
     private fun readAxPoint(pointer: Pointer): MacAxCGPoint? {
         val point = MacAxCGPoint()
         val ok = AxValueReader.INSTANCE.AXValueGetValue(pointer, AX_VALUE_TYPE_CGPOINT, point.pointer)
-        return if (ok) point else null
+        if (ok.toInt() == 0) return null
+        point.read()
+        return point
     }
 
     private fun readAxSize(pointer: Pointer): MacAxCGSize? {
         val size = MacAxCGSize()
         val ok = AxValueReader.INSTANCE.AXValueGetValue(pointer, AX_VALUE_TYPE_CGSIZE, size.pointer)
-        return if (ok) size else null
+        if (ok.toInt() == 0) return null
+        size.read()
+        return size
     }
 
     private fun readAttribute(element: Pointer, attribute: Pointer): String? {
@@ -475,7 +479,7 @@ class MacOSDesktopDriver : Driver {
     private fun createCFString(value: String): Pointer = MacAxLibrary.cfString(value)
 
     private interface AxValueReader : com.sun.jna.Library {
-        fun AXValueGetValue(value: Pointer, type: Int, valuePtr: Pointer): Boolean
+        fun AXValueGetValue(value: Pointer, type: Int, valuePtr: Pointer): Byte
 
         companion object {
             val INSTANCE: AxValueReader = com.sun.jna.Native.load("ApplicationServices", AxValueReader::class.java)
