@@ -3,6 +3,7 @@ package maestro.drivers.desktop.macos
 import com.sun.jna.Library
 import com.sun.jna.Memory
 import com.sun.jna.Native
+import com.sun.jna.NativeLibrary
 import com.sun.jna.Pointer
 import com.sun.jna.ptr.PointerByReference
 
@@ -48,6 +49,12 @@ internal interface MacAxLibrary : Library {
         val AXSelectedAttribute: Pointer by lazy { cfString("AXSelected") }
         val AXPressAction: Pointer by lazy { cfString("AXPress") }
         val AXFocusedUIElementAttribute: Pointer by lazy { cfString("AXFocusedUIElement") }
+        val AXEnhancedUserInterfaceAttribute: Pointer by lazy { cfString("AXEnhancedUserInterface") }
+        val kCFBooleanTrue: Pointer by lazy {
+            NativeLibrary.getInstance("CoreFoundation")
+                .getGlobalVariableAddress("kCFBooleanTrue")
+                .getPointer(0)
+        }
 
         fun cfString(value: String): Pointer {
             return CoreFoundationBridge.INSTANCE.CFStringCreateWithCString(

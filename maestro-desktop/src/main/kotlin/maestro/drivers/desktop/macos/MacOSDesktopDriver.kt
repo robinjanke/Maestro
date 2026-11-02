@@ -88,6 +88,7 @@ class MacOSDesktopDriver : Driver {
             this.appId = appId
             rootElement = MacAxLibrary.INSTANCE.AXUIElementCreateApplication(pid)
                 ?: error("Failed to create AXUIElement for pid $pid")
+            enableEnhancedUserInterface(rootElement!!)
             waitUntilScreenIsStatic(5000)
             return
         }
@@ -113,7 +114,19 @@ class MacOSDesktopDriver : Driver {
         this.appId = appId
         rootElement = MacAxLibrary.INSTANCE.AXUIElementCreateApplication(pid)
             ?: error("Failed to create AXUIElement for pid $pid")
+        enableEnhancedUserInterface(rootElement!!)
         waitUntilScreenIsStatic(5000)
+    }
+
+    private fun enableEnhancedUserInterface(application: Pointer) {
+        // Flutter on macOS publishes its semantics tree only after this flag.
+        val result = MacAxLibrary.INSTANCE.AXUIElementSetAttributeValue(
+            application,
+            MacAxLibrary.AXEnhancedUserInterfaceAttribute,
+            MacAxLibrary.kCFBooleanTrue,
+        )
+        logger.info("AXEnhancedUserInterface result=$result")
+        Thread.sleep(1000)
     }
 
     override fun stopApp(appId: String) {
